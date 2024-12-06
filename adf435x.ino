@@ -1,5 +1,5 @@
 /* ©kd9fww 2024. ADF435x stand alone using Arduino Nano hardware SPI. (in 300 lines)
-  https://github.com/151octal/adf435x/blob/main/pll.ino <- where you got this code. */
+  https://github.com/151octal/adf435x/blob/main/adf435x.ino <- where you got this code. */
 #include <SPI.h>
   // https://github.com/hideakitai/ArxContainer
 #include <ArxContainer.h> 
