@@ -194,7 +194,7 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
     static_assert(( 22 < Whole ) && (4096 > Whole));
   constexpr auto Mod32 = round(fPFD / fStep);
     static_assert((1 < Mod32) && (4096 > Mod32));
-      // todo: spur avoidance mechanism; use next lowest Modulus value NOT factorable by { 2, 3 }
+    // todo: spur avoidance mechanism; use next lowest Modulus value NOT factorable by { 2, 3 }
   constexpr auto Modulus = u16( Mod32 );
   constexpr auto frac = (fracN - Whole);
   constexpr auto Fraction = u16( round( frac * Modulus ) );
