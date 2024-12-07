@@ -89,7 +89,7 @@ static constexpr struct Specification { const u8 rank, offset, width; } ADF435x[
             tx() in ascending rank order, unless not dirty. Thus, datasheet register '0' is
             always tx()'d last (and will always need to be tx()'d). See flush() below.
     offset: the zero based, position of field's least significant bit within a 32 bit register.
-    width: Correct, the number of bits (and is never zero). You get a gold star! *//*
+    width:  Correct, the number of bits (and is never zero). You get a gold star! *//*
    {  r0   }, { integer }, { fraction }, */
   {5,  0, 3}, {5,  3, 12}, {5, 15, 16}, /* r0 has 3 'fields'            // begin taedium #1 of two
    {  r1   }, {  phase  }, { modulus },  et cetera                                              */
@@ -137,10 +137,10 @@ struct SpecifiedOverlay {
     char cx{ 0 };
     switch( frame.durty ) { // 'vacuum assist' as it were, by avoiding the undirty'd
       default: break;                   /* otherwise: say they're all dirty */
-      case 0: return;                   /* none ••• */
+      case 0: return;                   /* none dirty */
       case 1: cx = frame.N - 1; break;  /* r0 ••• */
       case 2: /* fall thru */           /* r1 ••• */
-      case 3: cx = frame.N - 2; break;  /* r1 & r0 ••• */ }
+      case 3: cx = frame.N - 2; break;  /* r1 and r0 ••• */ }
     frame.durty = 0;
     for(/* empty */; frame.N != cx; ++cx) tx( &frame.bfr[cx], sizeof(frame.bfr[cx]) ); }
 };  using Overlay = SpecifiedOverlay;
@@ -164,7 +164,7 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
       [M2] = { 0146.000e6, 4 }, /* (144 - 148) MHz <- 2m ham band */
       [M3] = { 0100.000e6, 5 }, /* (88 - 108) MHz <- FM broadcast band in US */
       [M4] = { 0075.000e6, 5 },
-      [M5] = { 0060.000e6, 6 }, /* <- fVCO divided by 64. see FYI midX's decl below */
+      [M5] = { 0060.000e6, 6 }, /* <- fVCO divided by 64. see FYI midX's declarations below */
       [M6] = { 0050.000e6, 6 }  /* (50 - 54) MHz <- 6m ham band */ };
     //
   constexpr auto fStep{ (CHANNEL::EVAL == chan) ? 100e3 : (fOSC / 20e3) };
@@ -224,9 +224,8 @@ auto setup() -> void {  /* begin execution
   temp.set( S::modulus, Modulus );                                                         // (3)
   temp.set( S::phase, 1);  // adjust phase AFTER loop lock                                 // (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
-  enum Prsc { four5ths = 0, eight9ths };
-  constexpr auto preScale = (75 < Whole) ? Prsc::eight9ths : Prsc::four5ths;
-  temp.set( S::prescaler, preScale );                                                      // (6)
+  enum PreScale { four5ths = 0, eight9ths };
+  temp.set( S::prescaler, (75 < Whole) ? PreScale::eight9ths : PreScale::four5ths );       // (6)
   temp.set( S::counterReset, E::OFF );                                                     // (7)
   temp.set( S::cp3state, E::OFF );                                                         // (8)
   temp.set( S::idle, E::OFF );                                                             // (9)
@@ -243,8 +242,8 @@ auto setup() -> void {  /* begin execution
   temp.set( S::rCounter, Rcounter );                                                       // (15)
   temp.set( S::refDivider, oscToggler );                                                   // (16)
   temp.set( S::refDoubler, oscDoubler );                                                   // (17)
-  enum MuxOut { HiZ = 0, DVdd, DGnd, rCntOut, nDivOut, aLock, dLock };
-  temp.set( S::muxOut, MuxOut::HiZ );                                                      // (18)
+  enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
+  temp.set( S::muxOut, MuxOut::HiZ ); // see 'cheat sheet' cited on line 7                 // (18)
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
     static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < Modulus ? 1 : 0) : 1 );
   temp.set( S::LnLsModes, nsMode );                                                        // (19)
