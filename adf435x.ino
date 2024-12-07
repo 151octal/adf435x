@@ -135,8 +135,8 @@ struct SpecifiedOverlay {
       // When it is appropriate to do so, flush() 'it' to the pll module.
   auto flush() -> void {
     char cx{ 0 };
-    switch( frame.durty ) { // avoid the undirty'd
-      default: break;                   /* all dirty */
+    switch( frame.durty ) { // 'vacuum assist' as it were, by avoiding the undirty'd
+      default: break;                   /* otherwise: say they're all dirty */
       case 0: return;                   /* none ••• */
       case 1: cx = frame.N - 1; break;  /* r0 ••• */
       case 2: /* fall thru */           /* r1 ••• */
