@@ -2,11 +2,11 @@
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- where you got this code.
   https://www.analog.com/ADF4351 <- the device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
-  I acquired an assembled pll module for $45US from the company with same name as a South American
-  river. Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty.
+  US$45 for an assembled pll module from a company with the same name as a South American river.
+  Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty;
   https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (shifter
-  chip + bypass cap) assembly. It's pinout is labeled and is obvious. I procured mine, and
-  the nano, from the same aforementioned company. */
+  chip + bypass cap) assembly. It's pinout is labeled. I procured mine, and the nano, for cheap
+  from the same aforementioned company. */
 #include <SPI.h>
   // https://github.com/hideakitai/ArxContainer
 #include <ArxContainer.h> /*  In A Nutshell:
