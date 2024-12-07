@@ -193,8 +193,9 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
   constexpr auto fracN = tune[ chan ].fSet * rfDivisor / fPFD;
   constexpr auto Whole = u16( fracN );
     static_assert(( 22 < Whole ) && (4096 > Whole));  // 12 bits, with a minimum value
-  constexpr auto Mod32 = round(fPFD / fStep); // prefer Modulus value NOT factorable by { 2, 3 }
-    static_assert( (1 < Mod32) && (4096 > Mod32) );   // 12 bits, with a minimum value
+  constexpr auto Mod32 = round(fPFD / fStep);
+    static_assert( (1 < Mod32) && (4096 > Mod32) ); // 12 bits, with a minimum value
+  //static_assert((EVAL == chan) ? true : (Mod32 % 2) && (Mod32 % 3)); // NOT factorable by {2, 3}
   constexpr auto Modulus = u16( Mod32 );
   constexpr auto clkDiv32 = round( 400e-6 /* Seconds */ * fPFD / Modulus ); // from the datasheet
     // in the 'Phase Resync' paragraphs: tSYNC = CLK_DIV_VALUE × MOD × tPFD
