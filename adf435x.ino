@@ -171,7 +171,7 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
       [M5] = { 0060.000e6, 6 }, /* <- fVCO divided by 64. see FYI midX's declarations below */
       [M6] = { 0050.000e6, 6 }  /* (50 - 54) MHz <- 6m ham band */ };
     //
-  constexpr auto fStep{ (CHANNEL::EVAL == chan) ? 100e3 : (fOSC / 20e3) };
+  constexpr auto fStep{ (CHANNEL::EVAL == chan) ? 100e3 : (fOSC / 20e3) }; // 1.25 kHz, nominal
   constexpr u8 rfDivisorTable[] = { 1, 2, 4, 8, 16, 32, 64 };
   constexpr auto RfDivisorTableIndex{ tune[ chan ].rfDtabIndex };   /* todo: calc rfDivisor
       that is, remove the need for the tune table entries' second data member. I'm having
