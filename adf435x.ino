@@ -1,21 +1,20 @@
 /* ©kd9fww 2024. ADF435x stand alone using Arduino Nano hardware SPI. (in 300 lines)
-  https://github.com/151octal/adf435x/blob/main/adf435x.ino <- where you got this code. */
+  https://github.com/151octal/adf435x/blob/main/adf435x.ino <- where you got this code.
+  https://www.analog.com/ADF4351 <- the device for which this code is specifically tailored.
+  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
+  I purchased an assembled module for $45 US from the company named after a South American river.
+  Bi-directional level shifter module assembly, P/N: TXS0108E hereafter referred to as: Shfty
+  https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (smd
+  shifter chip + bypass cap) assembly. It's pinout is labeled and obvious. I obtained mine, and
+  the nano from the same aforementioned company. */
 #include <SPI.h>
   // https://github.com/hideakitai/ArxContainer
-#include <ArxContainer.h>
-  /* https://www.analog.com/ADF4351 <- the device for which this code is specifically tailored.
-     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
-  I purchased an assembled module for $45 US from the company named after a South American river.
-  bi-directional level shifter module assy. [ P/N: TXS0108E hereafter referred to as: Shfty ]
-    https://www.ti.com/lit/ds/symlink/txs0108e.pdf
-  No documentation is available for the (smd shifter chip + bypass cap) shifter assembly. I
-  obtained mine (and the nano) from that same aforementioned company.
-
-  In A Nutshell: The Shfty is post † soldered to the nano such that the pins b1..b6 directly
-  connect to the nano's pcb pins h9..h14. Wire-wrap the rest. Limit to 7cm and common mode choke
-  the aggregate of (qty:9) wires connecting the ADF435x module. Supply the ADF435x module from the
-  nano's on board 5v regulator output. Use the ADF435x module's onboard 3v regulator output to
-  supply the 3v3 needed by the Shfty. Implement NO DC ground loop(s) ††.
+#include <ArxContainer.h> /*  In A Nutshell:
+  The Shfty is post † soldered to the nano such that the pins b1..b6 directly connect to the
+  nano's pcb pins h9..h14. Wire-wrap the rest. Limit to 7cm and common mode choke the aggregate
+  of (qty:9) wires connecting the ADF435x module. Supply the ADF435x module from the nano's on
+  board 5v regulator output. Use the ADF435x module's onboard 3v regulator output to supply the
+  3v3 needed by the Shfty. Implement NO DC ground loop(s) ††.
     https://en.wikipedia.org/w/index.php?title=Ground_loop_(electricity)
   pin mapping legend: { -w-wire-w-, =p=post=p= }
   scheme: h.x:(nano name) -/- b.label | a.label(pll name) -/- num (X)  where:
@@ -25,7 +24,7 @@
   nano                                 Shfty                  pll module
   30 pins                              18 pins                 9 wires. labeled (A) thru (I)
   ---               -/-                  ---         -/-      --- ________________________________
-  //          (single point) ground-w-GND-w---------------w-7 (A) |  ADF435x module pin header   |
+  //          (single point)-ground-w-GND-w---------------w-7 (A) |  ADF435x module pin header   |
   h.4:(GND)-w-----------------------w-GND | oe-w-----w-v.a        |     component side view      |
   h.16:D13(SCK)-w--------------CLK--w-b.8 | a.8(clk)-w----w-4 (B) |------------------------------|
   h.15:D12(MISO) <- open circuit: ignore data FROM the pll        |     [[•]] | 0 | 9 | 3v3 (H)  |
@@ -37,22 +36,26 @@
   h.10:D7=p=====================LD==p=b.2 | a.2(ld)--w----w-2 (F) | leave '0' open to provide a  |
   h.9:D6=p=====================PDR==p=b.1 | a.1(pdr)-w----w-1 (G) | [[sleeve]] jumper to '8'     |
   h.27:(5V from nano.reg5)----w-----w-b.v | v.a(3v3)-w----w-9 (H) <- (NOT h.17)
-  //                   (single point) b.v-w--------------w-5v (I) <- (to pll.reg3.3 input)
+  //                   (single point)-b.v-w--------------w-5v (I) <- to pll.reg3.3 input (coaxial)
   h.29:(system.pwr.return-GND: nano.reg5 return)
   h.30:(system.pwr.supply-VIN: nano.reg5 input)
+  ------------------------------------------------------------------------------------------------
+  † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
+  †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
+  ------------------------------------------------------------------------------------------------
+  Yes. The nano LED (on D13) is in contention with the default SPI clock line and is not easily
+  open circuited. Look, 'Let It Be' and 'fughet about it', OK? SPI will work regardless.
+  ------------------------------------------------------------------------------------------------
+  The scheme depicted makes it possible to power the system (Nano, Shfty, PLL) from these sources:
+  1) USB, 2) The coaxial power connector on the pll assembly, 3) The nano power pins, as above.
+  Don't use options 2) and 3) at the same time. ugh. There is a diode on the Nano which blocks
+  5V current from the flowing onto the USB 5V bus. Therefor, simultaneous operation with USB and
+  (one) external power supply, does not present contention.
   Note: avoid supplying the system power at a voltage near the nano's 5V regultor dropout as noise
   might cause gross modulation of the nano 5V which in turn modulates the 3v3 to the extent of the
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but sufficiently above 3v3 regulator input).
-  Mine works with 5.1V @ < 500 mA. This scheme makes it possible to power the system (Nano, Shfty,
-  PLL) from these sources: 1) USB, 2) The coaxial power connector on the pll assembly, 3) The nano
-  power pins, as above. Don't use options 2) and 3) at the same time. ugh. There is a diode on the
-  Nano which blocks Nano 5V current from the flowing onto the USB 5V bus. Therefor, simultaneous
-  operation with USB and (one) external power supply, does not present contention.
-  † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
-  †† Faraday enclosures bonded to earth: one high value X7R between GND and EARTH IS better than
-  a DC short. */ /* Yes. The nano LED is in contention with the default SPI clock line and is not
-  easily open circuited. Look, let it be and 'fughet about it', OK? SPI will work regardless. */
+  My USB host is 5.1V @ < 500 mA. For debug, etc., power only from USB; external otherwise. */
   // commented out, but wired:   D4                                      D11       D13
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // block until lock
@@ -275,7 +278,7 @@ auto setup() -> void {  /* begin execution
   temp.set( S::auxOutPwr, auxPower );                                                      // (28)
   temp.set( S::auxOutEnable, E::OFF );                                                     // (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
-  temp.set( S::auxFBselect, Feedback );                                                    // (30)
+  temp.set( S::auxFBselect, Feedback ); // untested because I can't                        // (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
   constexpr auto BscClkDiv = round(fPFD / 125e3);
