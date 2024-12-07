@@ -147,33 +147,34 @@ struct SpecifiedOverlay {
 Overlay pll;  // global scope in order to accomodate the setup();loop(); paradigm. groan.
   constexpr auto  fOSCerror{ -0110e0 },             // value determined indirectly by measurement
                   fOSC{ 025e6 + fOSCerror },        // fOSC is the actual aforementioned measurement
-                  minVCO{ 2.2e9 }, maxVCO{ 4.4e9 }, // manifest constants
-                  minPFD{ 125e3 }, maxPFD{ 050e6 };
-constexpr enum ChannelSet { EVAL, CM23, BIRD, OOK, TEK, CM70, M2, M3, M4, M5, M6 } chan = M3;
+                  minVCO{ 2.2e9 }, maxVCO{ 4.4e9 }, // manifest constants ...
+                  minPFD{ 125e3 }, maxPFD{ 045e6 }; // ... from datasheet prose regarding the PFD
+constexpr enum CHANNEL { EVAL, CM23, BIRD, OOK, TEK, /* CM70, M2, */ M3, M4, M5, M6 } chan = M3;
   // "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
   // until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865.
 constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of channel frequencies
 /* start here. add your member and assign it to chan, or modify one of these
   { [enum] = {  frequency, divisor table index } */
-    [EVAL] = { 2500.000e6, 0 }, /* the default initial setting in the mfr's evaluation software */
+    [EVAL] = { 2500.000e6, 0 }, /* the default freq. setting in the mfr's evaluation software */
     [CM23] = { 1240.000e6, 1 }, /* (1240 - 1300) MHz <- 23cm ham band */
-    [BIRD] = { 0910.000e6, 2 }, /* there are 'birdies' on this band, in my neighborhood */
+    [BIRD] = { 0910.000e6, 2 }, /* my neighborhood 'birdie' */
      [OOK] = { 0433.920e6, 3 }, /* to get 430MHz, divide the vco by 8 (= 2 * 2 * 2) <- 3 */
-     [TEK] = { 0430.350e6, 3 }, /* I have a crystal controlled receiver at this frequency */
-    [CM70] = { 0420.000e6, 3 }, /* (420 - 450) MHz <- 70cm ham band */
-      [M2] = { 0144.000e6, 4 }, /* (144 - 148) MHz <- 2m ham band */
+     [TEK] = { 0430.350e6, 3 }, /* crystal controlled transceiver //
+    [CM70] = { 0446.000e6, 3 }, /* (420 - 450) MHz <- 70cm ham band //
+      [M2] = { 0146.000e6, 4 }, /* (144 - 148) MHz <- 2m ham band */
       [M3] = { 0100.000e6, 5 }, /* (88 - 108) MHz <- FM broadcast band in US */
       [M4] = { 0075.000e6, 5 },
       [M5] = { 0060.000e6, 6 }, /* <- fVCO divided by 64. see FYI midX's decl below */
       [M6] = { 0050.000e6, 6 }  /* (50 - 54) MHz <- 6m ham band */ };
-  constexpr auto fStep{ (ChannelSet::EVAL == chan) ? 100e3 : (fOSC / 2e3 / 20) };
+    //
+  constexpr auto fStep{ (CHANNEL::EVAL == chan) ? 100e3 : (fOSC / 20e3) };
   constexpr u8 rfDivisorTable[] = { 1, 2, 4, 8, 16, 32, 64 };
   constexpr auto RfDivisorTableIndex{ tune[ chan ].rfDtabIndex };  /* todo: calc rfDivisor
       that is, remove the need for the tune table entries' midde data member. I'm having
       a temporary lapse of insight. */
   constexpr auto rfDivisor = rfDivisorTable[ RfDivisorTableIndex ]; /* use result of todo here
     or otherwise arrive here, determining rfDivisor by a means as yet to be determined */
-  //  FYI. all possible fSet ranges. Note: fSet range is fVCO limited, not by fOSC.
+    //  FYI. all possible fSet ranges. Note: fSet range is fVCO limited, not by fOSC.
     constexpr auto mid0{ (maxVCO - minVCO) / 2 + minVCO };  // 3300 ± 1100 = { 4400, 2200 } MHz
     constexpr auto mid1{ mid0 / rfDivisorTable[1] };  // 1650 ± 550 = { 2200, 1100 }
     constexpr auto mid2{ mid0 / rfDivisorTable[2] };  // 825 ± 275 = { 1100, 550 }
@@ -185,16 +186,15 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
     static_assert((maxVCO >= fVCO) && (minVCO <= fVCO));
   enum Enable { OFF = 0, ON };  using E = Enable;
   constexpr auto oscDoubler{ E::OFF },  oscToggler{ E::OFF };
-  constexpr auto Rcounter{ 20 };
-    static_assert( 1024 > Rcounter );
+  constexpr u16 Rcounter{ (CHANNEL::EVAL == chan) ? 1 : 15 }; // such that Modulus is prime
+    static_assert( 1024 > Rcounter ); // 10 bits
   constexpr auto fPFD = fOSC * (1 + oscDoubler) / (1 + oscToggler) / Rcounter;
     static_assert((minPFD <= fPFD) && (maxPFD >= fPFD));
   constexpr auto fracN = tune[ chan ].fSet * rfDivisor / fPFD;
   constexpr auto Whole = u16( fracN );
-    static_assert(( 22 < Whole ) && (4096 > Whole));
-  constexpr auto Mod32 = round(fPFD / fStep);
-    static_assert((1 < Mod32) && (4096 > Mod32));
-    // todo: spur avoidance mechanism; use next lowest Modulus value NOT factorable by { 2, 3 }
+    static_assert(( 22 < Whole ) && (4096 > Whole));  // 12 bits
+  constexpr auto Mod32 = round(fPFD / fStep); // prefer Modulus value NOT factorable by { 2, 3 }
+    static_assert( (1 < Mod32) && (4096 > Mod32) );//&& (Mod32 % 2) && (Mod32 % 3) ); // 12 bits
   constexpr auto Modulus = u16( Mod32 );
   constexpr auto frac = (fracN - Whole);
   constexpr auto Fraction = u16( round( frac * Modulus ) );
@@ -210,7 +210,7 @@ auto setup() -> void {  /* begin execution
   SPI.begin();
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // rf output enable. lock is attainable disabled.
     // for OnOffKeying (OOK) start with 'key' off.
-  digitalWrite(static_cast<u8>(PIN::PDR), (ChannelSet::OOK == chan) ? E::OFF : E::ON );
+  digitalWrite(static_cast<u8>(PIN::PDR), (CHANNEL::OOK == chan) ? E::OFF : E::ON );
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* latch on rising edge:
     to accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). see tx() */
@@ -260,10 +260,10 @@ auto setup() -> void {  /* begin execution
   temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
   enum BandSelectMode { automatic = 0, programmed };
   temp.set( S::bscMode, BandSelectMode::automatic );                                       // (25)
-  constexpr enum dBm { minus4, minus1, plus2, plus5 } rfPower = plus5;
-  temp.set( S::rfOutPwr, rfPower );                                                        // (26)
+  constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
+  temp.set( S::rfOutPwr, outPower );                                                       // (26)
   temp.set( S::rfOutEnable, E::ON );                                                       // (27)
-  temp.set( S::auxOutPwr, dBm::minus4 );                                                   // (28)
+  temp.set( S::auxOutPwr, auxPower );                                                      // (28)
   temp.set( S::auxOutEnable, E::OFF );                                                     // (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
   temp.set( S::auxOutSelect, Feedback );                                                   // (30)
@@ -275,10 +275,10 @@ auto setup() -> void {  /* begin execution
   temp.set( S::rfDivSelect, RfDivisorTableIndex );                                         // (34)
   temp.set( S::feedbackSelect, !Feedback );  /* EEK! Why the negation?                     // (35)
     It works (for all possible divisors) NEGATED. I'm stumped. Perhaps I've been daVinci'd.     */
-  constexpr enum LedMode { low = 0, lockDetect = 1, high = 3 } Led = lockDetect;
-  temp.set( S::led_mode, Led);                                            // ding. winner!    (36)
+  enum LedMode { low = 0, lockDetect = 1, high = 3 };
+  temp.set( S::led_mode, LedMode::lockDetect );                           // ding. winner!    (36)
   //                                                                      // end taedium #two of 2
-pll = temp;  /* save and exit scope (discarding temp). */ } /**/
+pll = temp;  /* save and exit scope (discarding temp). */ }
 pll.flush();
 wait4lock();  // that pretty blue led indicates phase lock. now, set phase at 180º.
 pll.set( S::phase_adjust,E::ON ).set( S::phase,(Modulus >> 1) ).flush();
