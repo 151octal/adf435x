@@ -2,11 +2,11 @@
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- where you got this code.
   https://www.analog.com/ADF4351 <- the device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
-  I purchased an assembled module for $45 US from the company named after a South American river.
-  Bi-directional level shifter module assembly, P/N: TXS0108E hereafter referred to as: Shfty
-  https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (smd
-  shifter chip + bypass cap) assembly. It's pinout is labeled and obvious. I obtained mine, and
-  the nano from the same aforementioned company. */
+  I acquired an assembled pll module for $45US from the company with same name as a South American
+  river. Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty.
+  https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (shifter
+  chip + bypass cap) assembly. It's pinout is labeled and is obvious. I procured mine, and
+  the nano, from the same aforementioned company. */
 #include <SPI.h>
   // https://github.com/hideakitai/ArxContainer
 #include <ArxContainer.h> /*  In A Nutshell:
@@ -15,7 +15,7 @@
   of (qty:9) wires connecting the ADF435x module. Supply the ADF435x module from the nano's on
   board 5v regulator output. Use the ADF435x module's onboard 3v regulator output to supply the
   3v3 needed by the Shfty. Implement NO DC ground loop(s) ††.
-    https://en.wikipedia.org/w/index.php?title=Ground_loop_(electricity)
+  https://en.wikipedia.org/w/index.php?title=Ground_loop_(electricity)
   pin mapping legend: { -w-wire-w-, =p=post=p= }
   scheme: h.x:(nano name) -/- b.label | a.label(pll name) -/- num (X)  where:
     h.x: nano pcb 'header' pin number   notes:  i) pin h.1 has a square solder pad
@@ -48,11 +48,11 @@
   ------------------------------------------------------------------------------------------------
   The scheme depicted makes it possible to power the system (Nano, Shfty, PLL) from these sources:
   1) USB, 2) The coaxial power connector on the pll assembly, 3) The nano power pins, as above.
-  Don't use options 2) and 3) at the same time. ugh. Don't exceed 5.5V for option 2). SMOKE. There
-  is a diode on the Nano which blocks 5V current from the flowing onto the USB 5V bus. Therefor,
-  simultaneous operation with USB and (one) external power supply, does not present contention.
+   •Don't exceed 5.5V for option 2• SMOKE! ••• •Don't use options 2 and 3 at the same time• ugh.
+  A schottky diode on the Nano blocks 5V current flowing onto the USB host's 5V bus from nano 5V
+  Therefor, simultaneous operation with USB and (one) external power supply, is not an issue.
   Note: avoid supplying the system power at a voltage near the nano's 5V regultor dropout as noise
-  might cause gross modulation of the nano 5V which in turn modulates the 3v3 to the extent of the
+  will cause gross modulation of the nano 5V which in turn modulates the 3v3 to the extent of the
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but sufficiently above 3v3 regulator input).
   My USB host is 5.1V @ < 500 mA. For debug, etc., power only from USB; external otherwise. */
