@@ -44,7 +44,11 @@
   might cause gross modulation of the nano 5V which in turn modulates the 3v3 to the extent of the
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but sufficiently above 3v3 regulator input).
-  Mine works with 5.1V @ < 500 mA.
+  Mine works with 5.1V @ < 500 mA. This scheme makes it possible to power the system (Nano, Shfty,
+  PLL) from these sources: 1) USB, 2) The coaxial power connector on the pll assembly, 3) The nano
+  power pins, as above. Don't use options 2) and 3) at the same time. ugh. There is a diode on the
+  Nano which blocks Nano 5V current from the flowing onto the USB 5V bus. Therefor, simultaneous
+  operation with USB and (one) external power supply, does not present contention.
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
   †† Faraday enclosures bonded to earth: one high value X7R between GND and EARTH IS better than
   a DC short. */ /* Yes. The nano LED is in contention with the default SPI clock line and is not
@@ -116,21 +120,21 @@ struct SpecifiedOverlay {
     using Buffer = std::array<u32, N>;
     // allocation and initialization ("reserved" & "contol" bit 'fields')
       // with the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
-      // NB: this is my old school 'constructor'. don't use the set() method to overwrite these
+      // NB: this is my old school 'constructor'. don't use the set() method to overwrite these.
       // An admittedly vulnerable coding but its simple and clear.
   u8 durty; Buffer bfr; } frame = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
-      // usage: object.set(symA,valA).set(symB,valB) ••• ad infinitum
-  auto set( S symbol, u16 value ) -> decltype(*this) {
+      // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
+  auto set( S symbol,u16 value ) -> decltype(*this) {
     constexpr auto weight = [](int index) {
       static constexpr u8 WeightTable[] = { 1, 2, 4, 8, 16, 32 };
       return WeightTable[index]; };
     static constexpr u32 Mask[] = {
               0,    1,    3,    7,   15,   31,    63,   127,
       255,  511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
-    auto STp = &ADF435x[ static_cast<const u8>( symbol ) ];
-    frame.bfr[ STp->rank ] &= ( ~(        Mask[ STp->width ]   << STp->offset) ); // first off
-    frame.bfr[ STp->rank ] |= (  (value & Mask[ STp->width ] ) << STp->offset  ); // then on.
-    frame.durty |= weight( (frame.N - 1) - STp->rank ); // encode which u32 was dirty'd
+    auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
+    frame.bfr[pSpec->rank] &= ( ~(        Mask[pSpec->width]   << pSpec->offset) ); // first off
+    frame.bfr[pSpec->rank] |= (  (value & Mask[pSpec->width] ) << pSpec->offset  ); // then on
+    frame.durty |= weight( (frame.N - 1) - pSpec->rank ); // encode which u32 was dirty'd
     return *this; }
       // When it is appropriate to do so, flush() 'it' to the pll module.
   auto flush() -> void {
@@ -197,9 +201,9 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
     static_assert( (1 < Mod32) && (4096 > Mod32) ); // 12 bits, with a minimum value
   //static_assert((EVAL == chan) ? true : (Mod32 % 2) && (Mod32 % 3)); // NOT factorable by {2, 3}
   constexpr auto Modulus = u16( Mod32 );
-  constexpr auto clkDiv32 = round( 400e-6 /* Seconds */ * fPFD / Modulus ); // from the datasheet
-    // in the 'Phase Resync' paragraphs: tSYNC = CLK_DIV_VALUE × MOD × tPFD
-  constexpr auto clkDiv{ (0 == clkDiv32) ? 1 : u16(clkDiv32) };
+  constexpr auto clkDiv32 = round( 400e-6 /* Seconds */ * fPFD / Modulus ); // from datasheets'
+    // 'Phase Resync' prose: tSYNC = CLK_DIV_VALUE × MOD × tPFD
+  constexpr auto clkDiv{ (1 > clkDiv32) ? 1 : u16(clkDiv32) };
     static_assert( (0 < clkDiv) && (4096 > clkDiv) ); // non-zero, 12 bit value
   constexpr auto frac = (fracN - Whole);
   constexpr auto Fraction = u16( round( frac * Modulus ) );
@@ -222,8 +226,7 @@ auto setup() -> void {  /* begin execution
   pinMode(static_cast<u8>(PIN::LD), INPUT);   // lock detect
   /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* enter another scope */ Overlay temp; /* setup a temporary, Specified Overlay
-  (qty:36) unique calls of set() are required, in any order. Note: set() does NOT write
-  directly to the pll; flush() does that, in the correct order.   •••   begin taedium #2 of two */
+  (qty:36) unique calls of set() are required, in any order.      •••   begin taedium #2 of two */
     // r0
   temp.set( S::fraction, Fraction );                                                       // (1)
   temp.set( S::integer, Whole );                                                           // (2)
