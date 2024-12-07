@@ -169,8 +169,8 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
     //
   constexpr auto fStep{ (CHANNEL::EVAL == chan) ? 100e3 : (fOSC / 20e3) };
   constexpr u8 rfDivisorTable[] = { 1, 2, 4, 8, 16, 32, 64 };
-  constexpr auto RfDivisorTableIndex{ tune[ chan ].rfDtabIndex };  /* todo: calc rfDivisor
-      that is, remove the need for the tune table entries' midde data member. I'm having
+  constexpr auto RfDivisorTableIndex{ tune[ chan ].rfDtabIndex };   /* todo: calc rfDivisor
+      that is, remove the need for the tune table entries' second data member. I'm having
       a temporary lapse of insight. */
   constexpr auto rfDivisor = rfDivisorTable[ RfDivisorTableIndex ]; /* use result of todo here
     or otherwise arrive here, determining rfDivisor by a means as yet to be determined */
@@ -187,7 +187,7 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
   enum Enable { OFF = 0, ON };  using E = Enable;
   constexpr auto oscDoubler{ E::OFF },  oscToggler{ E::OFF };
   constexpr u16 OSCcounter{ (CHANNEL::EVAL == chan) ? 1 : 15 }; // such that Modulus is prime
-    static_assert( (0 < OSCcounter) && (1024 > OSCcounter) ); // non-zero, 10 bit value
+    static_assert( (0 < OSCcounter) && (1024 > OSCcounter) );   // non-zero, 10 bit value
   constexpr auto fPFD = fOSC * (1 + oscDoubler) / (1 + oscToggler) / OSCcounter;
     static_assert((minPFD <= fPFD) && (maxPFD >= fPFD));
   constexpr auto fracN = tune[ chan ].fSet * rfDivisor / fPFD;
@@ -271,14 +271,14 @@ auto setup() -> void {  /* begin execution
   temp.set( S::auxOutPwr, auxPower );                                                      // (28)
   temp.set( S::auxOutEnable, E::OFF );                                                     // (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
-  temp.set( S::auxFBselect, Feedback );                                                   // (30)
+  temp.set( S::auxFBselect, Feedback );                                                    // (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
   constexpr auto BscClkDiv = round(fPFD / 125e3);
     static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // non-zero 8 bit value
   temp.set( S::bandSelectClkDiv, u8(BscClkDiv) );                                          // (33)
   temp.set( S::rfDivSelect, RfDivisorTableIndex );                                         // (34)
-  temp.set( S::rfFBselect, !Feedback );  /* EEK! Why the negation?                        // (35)
+  temp.set( S::rfFBselect, !Feedback );  /* EEK! Why the negation?                         // (35)
     It works (for all possible divisors) NEGATED. I'm stumped. Perhaps I've been daVinci'd.     */
     // r5
   enum LedMode { low = 0, lockDetect = 1, high = 3 };
