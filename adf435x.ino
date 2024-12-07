@@ -136,11 +136,11 @@ struct SpecifiedOverlay {
   auto flush() -> void {
     char cx{ 0 };
     switch( frame.durty ) { // avoid the undirty'd
-      default: break;                   /* all */
-      case 0: return;                   /* none */
-      case 1: cx = frame.N - 1; break;  /* r0 */
-      case 2: /* fall thru */           /* r1 */
-      case 3: cx = frame.N - 2; break;  /* r1 & r0 */ }
+      default: break;                   /* all dirty */
+      case 0: return;                   /* none ••• */
+      case 1: cx = frame.N - 1; break;  /* r0 ••• */
+      case 2: /* fall thru */           /* r1 ••• */
+      case 3: cx = frame.N - 2; break;  /* r1 & r0 ••• */ }
     frame.durty = 0;
     for(/* empty */; frame.N != cx; ++cx) tx( &frame.bfr[cx], sizeof(frame.bfr[cx]) ); }
 };  using Overlay = SpecifiedOverlay;
