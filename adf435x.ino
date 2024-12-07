@@ -48,9 +48,9 @@
   ------------------------------------------------------------------------------------------------
   The scheme depicted makes it possible to power the system (Nano, Shfty, PLL) from these sources:
   1) USB, 2) The coaxial power connector on the pll assembly, 3) The nano power pins, as above.
-  Don't use options 2) and 3) at the same time. ugh. There is a diode on the Nano which blocks
-  5V current from the flowing onto the USB 5V bus. Therefor, simultaneous operation with USB and
-  (one) external power supply, does not present contention.
+  Don't use options 2) and 3) at the same time. ugh. Don't exceed 5.5V for option 2). SMOKE. There
+  is a diode on the Nano which blocks 5V current from the flowing onto the USB 5V bus. Therefor,
+  simultaneous operation with USB and (one) external power supply, does not present contention.
   Note: avoid supplying the system power at a voltage near the nano's 5V regultor dropout as noise
   might cause gross modulation of the nano 5V which in turn modulates the 3v3 to the extent of the
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
