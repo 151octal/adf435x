@@ -80,7 +80,7 @@ enum Symbol : u8 {  // human readable register 'field' identifiers
       rfDivSelect,  rfFBselect,       // 11
   r5, _reserved5,    led_mode,        // 3
   end
-  };  static constexpr size_t nSymbol{ Symbol::end }; // for subsequent sanity check only
+  };  static constexpr auto nSymbol{ Symbol::end }; // for subsequent sanity check only
 using S = Symbol;
 static constexpr struct Specification { const u8 rank, offset, width; } ADF435x[] = { /*
   deduced via datasheet inspection
