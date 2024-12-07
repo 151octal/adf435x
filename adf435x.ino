@@ -57,7 +57,7 @@ auto tx(void *pBytes, int nBytes) -> void { // SPI stuff here
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // predicate condition for data transfer
   while( nBytes-- ) SPI.transfer( *(--p) );       // return value is ignored
   digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // data is latched on the rising edge
-enum Symbol : char {  // human readable register 'field' identifiers
+enum Symbol : u8 {  // human readable register 'field' identifiers
   // in datasheet order. Enumerant names do NOT mirror datasheet's names exactly
   r0 = 0,
       fraction,     integer,          // register 0 has 3 symbols
@@ -67,7 +67,7 @@ enum Symbol : char {  // human readable register 'field' identifiers
       idle,         pdPolarity,
       ldp,          ldf,
       cpIndex,      dblBfr,
-      rCounter,     refDivider,
+      rCounter,     refToggler,
       refDoubler,   muxOut,
       LnLsModes,                      // 14
   r3, clkDivider,   clkDivMode,
@@ -75,9 +75,9 @@ enum Symbol : char {  // human readable register 'field' identifiers
       abp,          bscMode,          // 7
   r4, rfOutPwr,     rfOutEnable,
       auxOutPwr,    auxOutEnable,
-      auxOutSelect, muteTillLD,
+      auxFBselect,  muteTillLD,
       vcoPwrDown,   bandSelectClkDiv,
-      rfDivSelect,  feedbackSelect,   // 11
+      rfDivSelect,  rfFBselect,       // 11
   r5, _reserved5,    led_mode,        // 3
   end
   };  static constexpr size_t nSymbol{ Symbol::end }; // for subsequent sanity check only
@@ -127,7 +127,7 @@ struct SpecifiedOverlay {
     static constexpr u32 Mask[] = {
               0,    1,    3,    7,   15,   31,    63,   127,
       255,  511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
-    auto STp = &ADF435x[ static_cast<const char>( symbol ) ];
+    auto STp = &ADF435x[ static_cast<const u8>( symbol ) ];
     frame.bfr[ STp->rank ] &= ( ~(        Mask[ STp->width ]   << STp->offset) ); // first off
     frame.bfr[ STp->rank ] |= (  (value & Mask[ STp->width ] ) << STp->offset  ); // then on.
     frame.durty |= weight( (frame.N - 1) - STp->rank ); // encode which u32 was dirty'd
@@ -186,16 +186,20 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
     static_assert((maxVCO >= fVCO) && (minVCO <= fVCO));
   enum Enable { OFF = 0, ON };  using E = Enable;
   constexpr auto oscDoubler{ E::OFF },  oscToggler{ E::OFF };
-  constexpr u16 Rcounter{ (CHANNEL::EVAL == chan) ? 1 : 15 }; // such that Modulus is prime
-    static_assert( 1024 > Rcounter ); // 10 bits
-  constexpr auto fPFD = fOSC * (1 + oscDoubler) / (1 + oscToggler) / Rcounter;
+  constexpr u16 OSCcounter{ (CHANNEL::EVAL == chan) ? 1 : 15 }; // such that Modulus is prime
+    static_assert( (0 < OSCcounter) && (1024 > OSCcounter) ); // non-zero, 10 bit value
+  constexpr auto fPFD = fOSC * (1 + oscDoubler) / (1 + oscToggler) / OSCcounter;
     static_assert((minPFD <= fPFD) && (maxPFD >= fPFD));
   constexpr auto fracN = tune[ chan ].fSet * rfDivisor / fPFD;
   constexpr auto Whole = u16( fracN );
-    static_assert(( 22 < Whole ) && (4096 > Whole));  // 12 bits
+    static_assert(( 22 < Whole ) && (4096 > Whole));  // 12 bits, with a minimum value
   constexpr auto Mod32 = round(fPFD / fStep); // prefer Modulus value NOT factorable by { 2, 3 }
-    static_assert( (1 < Mod32) && (4096 > Mod32) );//&& (Mod32 % 2) && (Mod32 % 3) ); // 12 bits
+    static_assert( (1 < Mod32) && (4096 > Mod32) );   // 12 bits, with a minimum value
   constexpr auto Modulus = u16( Mod32 );
+  constexpr auto clkDiv32 = round( 400e-6 /* Seconds */ * fPFD / Modulus ); // from the datasheet
+    // in the 'Phase Resync' paragraphs: tSYNC = CLK_DIV_VALUE × MOD × tPFD
+  constexpr auto clkDiv{ (0 == clkDiv32) ? 1 : u16(clkDiv32) };
+    static_assert( (0 < clkDiv) && (4096 > clkDiv) ); // non-zero, 12 bit value
   constexpr auto frac = (fracN - Whole);
   constexpr auto Fraction = u16( round( frac * Modulus ) );
     static_assert(Modulus > Fraction);
@@ -219,13 +223,16 @@ auto setup() -> void {  /* begin execution
 { /* enter another scope */ Overlay temp; /* setup a temporary, Specified Overlay
   (qty:36) unique calls of set() are required, in any order. Note: set() does NOT write
   directly to the pll; flush() does that, in the correct order.   •••   begin taedium #2 of two */
+    // r0
   temp.set( S::fraction, Fraction );                                                       // (1)
   temp.set( S::integer, Whole );                                                           // (2)
+    // r1
   temp.set( S::modulus, Modulus );                                                         // (3)
   temp.set( S::phase, 1);  // adjust phase AFTER loop lock                                 // (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
   enum PreScale { four5ths = 0, eight9ths };
   temp.set( S::prescaler, (75 < Whole) ? PreScale::eight9ths : PreScale::four5ths );       // (6)
+    // r2
   temp.set( S::counterReset, E::OFF );                                                     // (7)
   temp.set( S::cp3state, E::OFF );                                                         // (8)
   temp.set( S::idle, E::OFF );                                                             // (9)
@@ -239,18 +246,16 @@ auto setup() -> void {  /* begin execution
   temp.set( S::dblBfr, E::ON );   /*  Why not double buffer?                               // (14)
     it's probably because I am lacking knowledge of some aspect of the pll. this annoys me.
     "There is no substitute for fundamental understanding." E. Neville Pickering. Bradley U. */
-  temp.set( S::rCounter, Rcounter );                                                       // (15)
-  temp.set( S::refDivider, oscToggler );                                                   // (16)
+  temp.set( S::rCounter, OSCcounter );                                                     // (15)
+  temp.set( S::refToggler, oscToggler );                                                   // (16)
   temp.set( S::refDoubler, oscDoubler );                                                   // (17)
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
-  temp.set( S::muxOut, MuxOut::HiZ ); // see 'cheat sheet' cited on line 7                 // (18)
+  temp.set( S::muxOut, MuxOut::HiZ ); // see 'cheat sheet'                                 // (18)
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
     static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < Modulus ? 1 : 0) : 1 );
   temp.set( S::LnLsModes, nsMode );                                                        // (19)
-  constexpr auto ckDvdr = round( fOSC * 400e-6 / Modulus ); /* <- from the datasheet
-    in the 'Phase Resync' paragraphs:  tSYNC = CLK_DIV_VALUE × MOD × tPFD */
-    static_assert( 4096 > ckDvdr );
-  temp.set( S::clkDivider, u16(ckDvdr) );                                                  // (20)
+    // r3
+  temp.set( S::clkDivider, u16(clkDiv) );                                                  // (20)
   enum ClockingMode { dividerOff = 0, fastLock, phResync };
   temp.set( S::clkDivMode, ClockingMode::phResync );                                       // (21)
   temp.set( S::csr, E::OFF );                                                              // (22)
@@ -259,21 +264,23 @@ auto setup() -> void {  /* begin execution
   temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
   enum BandSelectMode { automatic = 0, programmed };
   temp.set( S::bscMode, BandSelectMode::automatic );                                       // (25)
+    // r4
   constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
   temp.set( S::rfOutPwr, outPower );                                                       // (26)
   temp.set( S::rfOutEnable, E::ON );                                                       // (27)
   temp.set( S::auxOutPwr, auxPower );                                                      // (28)
   temp.set( S::auxOutEnable, E::OFF );                                                     // (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
-  temp.set( S::auxOutSelect, Feedback );                                                   // (30)
+  temp.set( S::auxFBselect, Feedback );                                                   // (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
   constexpr auto BscClkDiv = round(fPFD / 125e3);
-    static_assert( 256 > BscClkDiv );
+    static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // non-zero 8 bit value
   temp.set( S::bandSelectClkDiv, u8(BscClkDiv) );                                          // (33)
   temp.set( S::rfDivSelect, RfDivisorTableIndex );                                         // (34)
-  temp.set( S::feedbackSelect, !Feedback );  /* EEK! Why the negation?                     // (35)
+  temp.set( S::rfFBselect, !Feedback );  /* EEK! Why the negation?                        // (35)
     It works (for all possible divisors) NEGATED. I'm stumped. Perhaps I've been daVinci'd.     */
+    // r5
   enum LedMode { low = 0, lockDetect = 1, high = 3 };
   temp.set( S::led_mode, LedMode::lockDetect );                           // ding. winner!    (36)
   //                                                                      // end taedium #two of 2
