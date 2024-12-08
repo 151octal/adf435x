@@ -7,9 +7,8 @@
   https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (shifter
   chip + bypass cap) assembly. It's pinout is labeled. I procured mine, and the nano, for cheap
   from the same aforementioned company. */
-#include <SPI.h>
-  // https://github.com/hideakitai/ArxContainer
-#include <ArxContainer.h> /*  In A Nutshell:
+#include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
+#include <SPI.h>  /* Assembly in a nutshell:
   The Shfty is post † soldered to the nano such that the pins b1..b6 directly connect to the
   nano's pcb pins h9..h14. Wire-wrap the rest. Limit to 7cm and common mode choke the aggregate
   of (qty:9) wires connecting the ADF435x module. Supply the ADF435x module from the nano's on
@@ -21,35 +20,34 @@
     h.x: nano pcb 'header' pin number   notes:  i) pin h.1 has a square solder pad
     b.x: level Shfty 5V logic pins              ii) shifter's supplies: v.b > v.a  and  v.a >= 0
     a.x: level Shfty 3V logic pins                    --> (nominals) 5.1 = v.b & 3.3 = v.a <--
-  nano                                 Shfty                  pll module
-  30 pins                              18 pins                 9 wires. labeled (A) thru (I)
-  ---               -/-                  ---         -/-      --- ________________________________
-  //          (single point)-ground-w-GND-w---------------w-7 (A) |  ADF435x module pin header   |
-  h.4:(GND)-w-----------------------w-GND | oe-w-----w-v.a        |     component side view      |
-  h.16:D13(SCK)-w--------------CLK--w-b.8 | a.8(clk)-w----w-4 (B) |------------------------------|
-  h.15:D12(MISO) <- open circuit: ignore data FROM the pll        |     [[•]] | 0 | 9 | 3v3 (H)  |
-  h.7:D4(T0)-w-----------------MUX--w-b.7 | a.7(mux)-w----w-3 (C) |     [[•]] | 8 | 7 | GND (A)  |
-  h.14:D11(MOSI)=p=============DAT==p=b.6 | a.6(dat)-w----w-5 (D) |   (E)  le | 6 | 5 | dat (D)  |
-  h.13:D10(SS*)=p===============LE==p=b.5 | a.5(le)--w----w-6 (E) |   (B) clk | 4 | 3 | mux (C)  |
-  h.12:D9=p=========================p=b.4 | a.4  available.0      |   (F)  ld | 2 | 1 | pdr (G)  |
-  h.11:D8=p=========================p=b.3 | a.3  available.1      |------------------------------|
-  h.10:D7=p=====================LD==p=b.2 | a.2(ld)--w----w-2 (F) | leave '0' open to provide a  |
-  h.9:D6=p=====================PDR==p=b.1 | a.1(pdr)-w----w-1 (G) | [[sleeve]] jumper to '8'     |
-  h.27:(5V from nano.reg5)----w-----w-b.v | v.a(3v3)-w----w-9 (H) <- (NOT h.17)
-  //                   (single point)-b.v-w--------------w-5v (I) <- to pll.reg3.3 input (coaxial)
+  nano                                 Shfty                 pll module
+  30 pins                             18 pins                 9 wires. labeled (A) thru (I)
+  ---              -/-                  ---         -/-      --- ________________________________
+  //         (single point)-ground-w-GND-w---------------w-7 (A) |  ADF435x module pin header   |
+  h.4:(GND)-w----------------------w-GND | oe-w-----w-v.a        |     component side view      |
+  h.16:D13(SCK)-w-------------CLK--w-b.8 | a.8(clk)-w----w-4 (B) |------------------------------|
+  h.15:D12(MISO) <- open circuit                                 |     [[•]] | 0 | 9 | 3v3 (H)  |
+  h.7:D4(T0)-w----------------MUX--w-b.7 | a.7(mux)-w----w-3 (C) |     [[•]] | 8 | 7 | GND (A)  |
+  h.14:D11(MOSI)=p============DAT==p=b.6 | a.6(dat)-w----w-5 (D) |   (E)  le | 6 | 5 | dat (D)  |
+  h.13:D10(SS*)=p==============LE==p=b.5 | a.5(le)--w----w-6 (E) |   (B) clk | 4 | 3 | mux (C)  |
+  h.12:D9=p========================p=b.4 | a.4  available.0      |   (F)  ld | 2 | 1 | pdr (G)  |
+  h.11:D8=p========================p=b.3 | a.3  available.1      |------------------------------|
+  h.10:D7=p====================LD==p=b.2 | a.2(ld)--w----w-2 (F) | leave '0' open to provide a  |
+  h.9:D6=p====================PDR==p=b.1 | a.1(pdr)-w----w-1 (G) | [[sleeve]] jumper to '8'     |
+  h.27:(5V from nano.reg5)-w--5V---w-b.v | v.a(3v3)-w----w-9 (H) <- (NOT h.17)
+  //                   (single point)-b.v-w-------------w-5V (I) <- to pll.reg3.3 input •5.5V MAX•
   h.29:(system.pwr.return-GND: nano.reg5 return)
   h.30:(system.pwr.supply-VIN: nano.reg5 input)
   ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
+  • Yes. The LED (on D13) appears to be in contention with the default SPI clock line and is not
+  easily open circuited. Look, 'Let It Be' and 'fughet about it', OK? SPI will work regardless.
   ------------------------------------------------------------------------------------------------
-  Yes. The nano LED (on D13) is in contention with the default SPI clock line and is not easily
-  open circuited. Look, 'Let It Be' and 'fughet about it', OK? SPI will work regardless.
-  ------------------------------------------------------------------------------------------------
-  The scheme depicted makes it possible to power the system (Nano, Shfty, PLL) from these sources:
+  The scheme depicted makes it possible to power the system (nano, Shfty, PLL) from these sources:
   1) USB, 2) The coaxial power connector on the pll assembly, 3) The nano power pins, as above.
-   •Don't exceed 5.5V for option 2• SMOKE! ••• •Don't use options 2 and 3 at the same time• ugh.
-  A schottky diode on the Nano blocks 5V current flowing onto the USB host's 5V bus from nano 5V
+  •Don't exceed 5.5V for option 2• SMOKE! ••• •Don't use options 2 and 3 at the same time• Ugh.
+  A schottky diode (on the nano) blocks current flowing onto the USB host's 5V bus from here.
   Therefor, simultaneous operation with USB and (one) external power supply, is not an issue.
   Note: avoid supplying the system power at a voltage near the nano's 5V regultor dropout as noise
   will cause gross modulation of the nano 5V which in turn modulates the 3v3 to the extent of the
@@ -95,11 +93,11 @@ static constexpr struct Specification { const u8 rank, offset, width; } ADF435x[
     rank:   datasheetRegisterNumber = N - 1 - rank
             tx() in ascending rank order, unless not dirty. Thus, datasheet register '0' is
             always tx()'d last (and will always need to be tx()'d). See flush() below.
-    offset: the zero based, position of field's least significant bit within a 32 bit register.
-    width:  Correct, the number of bits (and is never zero). You get a gold star! *//*
+    offset: zero based position of field's least significant bit within a 32 bit register.
+    width:  Correct. The number of bits in a field (and is at least one). •You get a gold star•
    {  r0   }, { integer }, { fraction }, */
   {5,  0, 3}, {5,  3, 12}, {5, 15, 16}, /* r0 has 3 'fields'            // begin taedium #1 of two
-   {  r1   }, {  phase  }, { modulus },  et cetera                                              */
+   {  r1   }, {  phase  }, { modulus },  et cetera */
   {4,  0, 3}, {4,  3, 12}, {4, 15, 12}, {4, 27,  1}, {4, 28,  1},
    // r2
   {3,  0, 3}, {3,  3,  1}, {3,  4,  1}, {3,  5,  1}, {3,  6,  1},
@@ -113,8 +111,7 @@ static constexpr struct Specification { const u8 rank, offset, width; } ADF435x[
   {1,  9, 1}, {1, 10,  1}, {1, 11,  1}, {1, 12,  8}, {1, 20,  3},
   {1, 23, 1}, /*
    {  r5   }, { resv'd  }, { LEDmode }                                                          */
-  {0,  0, 3}, {0, 19,  2}, {0, 22,  2}
-  };  // human tallied number of fields: 43                             // end taedium #1 of two
+  {0,  0, 3}, {0, 19,  2}, {0, 22,  2} };                               // end taedium #1 of two
   static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));     // sane, at last, haha!
   // ©kd9fww 2024
 struct SpecifiedOverlay {
@@ -124,7 +121,7 @@ struct SpecifiedOverlay {
     // allocation and initialization ("reserved" & "contol" bit 'fields')
       // with the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
       // NB: this is my old school 'constructor'. don't use the set() method to overwrite these.
-      // An admittedly vulnerable coding but its simple and clear.
+      // I admit this is vulnerable to 'breakage' but it is simple and clear.
   u8 durty; Buffer bfr; } frame = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) {
@@ -142,7 +139,7 @@ struct SpecifiedOverlay {
       // When it is appropriate to do so, flush() 'it' to the pll module.
   auto flush() -> void {
     char cx{ 0 };
-    switch( frame.durty ) { // 'vacuum assist' as it were, by avoiding the undirty'd
+    switch( frame.durty ) { // avoid the undirty'd
       default: break;                   /* otherwise: say they're all dirty */
       case 0: return;                   /* none dirty */
       case 1: cx = frame.N - 1; break;  /* r0 ••• */
@@ -156,7 +153,7 @@ Overlay pll;  // global scope in order to accomodate the setup();loop(); paradig
                   fOSC{ 025e6 + fOSCerror },        // fOSC is the actual aforementioned measurement
                   minVCO{ 2.2e9 }, maxVCO{ 4.4e9 }, // manifest constants ...
                   minPFD{ 125e3 }, maxPFD{ 045e6 }; // ... from datasheet prose regarding the PFD
-constexpr enum CHANNEL { EVAL, CM23, BIRD, OOK, TEK, /* CM70, M2, */ M3, M4, M5, M6 } chan = M3;
+constexpr enum CHANNEL { EVAL, CM23, BIRD, OOK, TEK, CM70, M2, M3, M4, M5, M6, BOT } chan = M3;
   // "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
   // until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865.
 constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of channel frequencies
@@ -166,13 +163,14 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
     [CM23] = { 1240.000e6, 1 }, /* (1240 - 1300) MHz <- 23cm ham band */
     [BIRD] = { 0910.000e6, 2 }, /* my neighborhood 'birdie' */
      [OOK] = { 0433.920e6, 3 }, /* to get 430MHz, divide the vco by 8 (= 2 * 2 * 2) <- 3 */
-     [TEK] = { 0430.350e6, 3 }, /* crystal controlled transceiver //
-    [CM70] = { 0446.000e6, 3 }, /* (420 - 450) MHz <- 70cm ham band //
+     [TEK] = { 0430.350e6, 3 }, /* crystal controlled transceiver */
+    [CM70] = { 0446.000e6, 3 }, /* (420 - 450) MHz <- 70cm ham band */
       [M2] = { 0146.000e6, 4 }, /* (144 - 148) MHz <- 2m ham band */
       [M3] = { 0100.000e6, 5 }, /* (88 - 108) MHz <- FM broadcast band in US */
       [M4] = { 0075.000e6, 5 },
       [M5] = { 0060.000e6, 6 }, /* <- fVCO divided by 64. see FYI midX's declarations below */
-      [M6] = { 0050.000e6, 6 }  /* (50 - 54) MHz <- 6m ham band */ };
+      [M6] = { 0050.000e6, 6 }, /* (50 - 54) MHz <- 6m ham band */
+     [BOT] = { 0034.375e6, 6 }  /* lowest possible fSet */ };
     //
   constexpr auto fStep{ (CHANNEL::EVAL == chan) ? 100e3 : (fOSC / 20e3) }; // 1.25 kHz, nominal
   constexpr u8 rfDivisorTable[] = { 1, 2, 4, 8, 16, 32, 64 };
@@ -202,7 +200,7 @@ constexpr struct { double fSet; size_t rfDtabIndex; } tune[] = { // table of cha
     static_assert(( 22 < Whole ) && (4096 > Whole));  // 12 bits, with a minimum value
   constexpr auto Mod32 = round(fPFD / fStep);
     static_assert( (1 < Mod32) && (4096 > Mod32) ); // 12 bits, with a minimum value
-  //static_assert((EVAL == chan) ? true : (Mod32 % 2) && (Mod32 % 3)); // NOT factorable by {2, 3}
+  // static_assert((EVAL == chan) ? true : (Mod32 % 2) && (Mod32 % 3)); // NOT factorable by {2,3}
   constexpr auto Modulus = u16( Mod32 );
   constexpr auto clkDiv32 = round( 400e-6 /* Seconds */ * fPFD / Modulus ); // from datasheets'
     // 'Phase Resync' prose: tSYNC = CLK_DIV_VALUE × MOD × tPFD
@@ -293,7 +291,7 @@ auto setup() -> void {  /* begin execution
   //                                                                      // end taedium #two of 2
 pll = temp;  /* save and exit scope (discarding temp). */ }
 pll.flush();
-wait4lock();  // that pretty blue led indicates phase lock. now, set phase at 180º.
+wait4lock();  // that pretty blue led indicates phase lock. now set phase (at 180º).
 pll.set( S::phase_adjust,E::ON ).set( S::phase,(Modulus >> 1) ).flush();
 /* end setup() */ }
   // jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!"
