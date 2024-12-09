@@ -113,10 +113,11 @@ static constexpr struct Specification { const u8 rank, offset, width; } ADF435x[
 struct SpecifiedOverlay {
   struct Frame {
     static constexpr auto N{ 6 };
-    using Buffer = std::array<u32, N>;
-      // With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
-      // NB: Don't use the set() method to overwrite these. This is vulnerable to 'breakage'
-      // but it is simple and clear.
+    using Buffer = std::array<u32, N>; /*
+      With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
+      NB: Don't use the set() method to overwrite these. Yes. It is vulnerable to 'breakage'.
+      And while the purists gently weep, it is simple, clear, concise, and fully unencumbered.
+      Translation: No barriers. No speed bumps. If you try to break it, you will. Don't. */
   u8 durty; Buffer bfr; } frame = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) {
@@ -294,4 +295,4 @@ wait4lock();  // That pretty blue led indicates phase lock. Now, set phase (at 1
 pll.set( S::phase_adjust,E::ON ).set( S::phase,(MODULUS >> 1) ).flush();
 /* end setup() */ }
   // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void {  }  //  73's, kd9fww.
+auto loop() -> void {  }  //  kd9fww. Known for lotsa things. Untested code isn't one of them.
