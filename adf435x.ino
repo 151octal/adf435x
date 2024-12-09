@@ -141,7 +141,9 @@ struct SpecifiedOverlay {
       case 2: /* fall thru */           /* r1 ••• */
       case 3: cx = frame.N - 2; break;  /* r1 and r0 ••• */ }
     frame.durty = 0;
-    for(/* empty */; frame.N != cx; ++cx) tx( &frame.bfr[cx], sizeof(frame.bfr[cx]) ); }
+    SPI.beginTransaction( SPISettings() );
+    for(/* empty */; frame.N != cx; ++cx) tx( &frame.bfr[cx], sizeof(frame.bfr[cx]) );
+    SPI.endTransaction(); /* Works plays well with others. */ }
 };  using Overlay = SpecifiedOverlay;
 Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradigm. Sigh.
   enum Enable { OFF = 0, ON = 1 };  using E = Enable;
@@ -152,7 +154,7 @@ Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradig
     static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
    constexpr auto MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }, // Manifest constants ...
                   MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // ... from the datasheet
-constexpr enum CHANNEL { EVAL, CM23, CM33, OOK, TEK, CM70, M2, M3, M4, M5, M6, BOT } CHAN = M4;
+constexpr enum CHANNEL { EVAL, CM23, CM33, OOK, TEK, CM70, M2, M3, M4, M5, M6, BOT } CHAN = M3;
   // "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
   // until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865.
 constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of CHANNELs.
