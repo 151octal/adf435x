@@ -122,8 +122,8 @@ struct SpecifiedOverlay {
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) {
     constexpr auto WEIGHT = [](int index) {
-      static constexpr u8 WeightTable[] = { 1, 2, 4, 8, 16, 32 };
-      return WeightTable[index]; };
+      static constexpr u8 WEIGHT_TABLE[] = { 1, 2, 4, 8, 16, 32 };
+      return WEIGHT_TABLE[index]; };
     static constexpr u32 MASK[] = {
               0,    1,    3,    7,   15,   31,    63,   127,
       255,  511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
@@ -144,14 +144,14 @@ struct SpecifiedOverlay {
     FRAME.durty = 0;
     SPI.beginTransaction( SPISettings() );
     for(/* empty */; FRAME.N != cx; ++cx) tx( &FRAME.bfr[cx], sizeof(FRAME.bfr[cx]) );
-    SPI.endTransaction(); /* Works plays well with others. */ }
+    SPI.endTransaction(); /* Works and plays well with others. */ }
 };  using Overlay = SpecifiedOverlay;
 Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradigm. Sigh.
   enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-  constexpr auto  FLAG{ E::ON };   // Switch controlling optional reference correction.
+  constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // Assertion failure avoidance.
-  constexpr auto  USER_TRIM{ -12 * CONSTRAINT };    // Zero based, via human working in -
-  constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  //  reverse from the 'REF' measurement, below.
+  constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in -
+  constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // reverse from the 'REF' measurement, below.
   constexpr auto  OSC{ 25.000000e6 },           // Nominal reference freq. Yours may be different.
                   REF{ OSC + REF_ERROR };       // Directly measured. YOURS WILL BE DIFFERENT.
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
@@ -292,9 +292,9 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   enum LedMode { low = 0, lockDetect = 1, high = 3 };
   temp.set( S::led_mode, LedMode::lockDetect ); // ding. winner! end taedium #two of 2        (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
-pll.flush();
-wait4lock();  // That pretty blue led indicates phase lock. Now, set phase (at 180º).
-pll.set( S::phase_adjust,E::ON ).set( S::phase,(MODULUS >> 1) ).flush();
+pll.flush();  wait4lock();  // That pretty blue led indicates phase lock.
+  // Now, set phase (at 180º). Can't test this, yet.
+  // pll.set( S::phase_adjust,E::ON ).set( S::phase,(MODULUS >> 1) ).flush();
 /* end setup() */ }
   // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void {  }  //  kd9fww. Known for lotsa things. Untested code isn't one of them.
+auto loop() -> void {  }  //  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them.
