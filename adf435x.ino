@@ -1,11 +1,11 @@
 /* ©kd9fww 2024. ADF435x stand alone using Arduino Nano hardware SPI. (in 300 lines)
-  https://github.com/151octal/adf435x/blob/main/adf435x.ino <- where you got this code.
-  https://www.analog.com/ADF4351 <- the device for which this code is specifically tailored.
+  https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
+  https://www.analog.com/ADF4351 <- Mhe device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
   US$45, for an assembled pll module from a company with the same name as a South American river.
   Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty;
   https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (shifter
-  chip + bypass cap) assembly. It's pinout is labeled. I procured mine, and the Nano, for cheap
+  chip + bypass cap) assembly. It's pinout is labeled. I acquired mine, and the Nano, for cheap
   from the same aforementioned company. */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
 #include <SPI.h>  /* Assembly in a nutshell:
@@ -15,11 +15,11 @@
   board 5v reg output. Use the ADF435x module's onboard 3v reg output to supply the Shfty.
   Implement NO DC ground loop(s) ††.
   https://en.wikipedia.org/w/index.php?title=Ground_loop_(electricity)
-  pin mapping legend: { -w-wire-w-, =p=post=p= }
-  scheme: h.x:(Nano name) -/- b.label | a.label(pll name) -/- num (X)  where:
-    h.x: Nano pcb 'header' pin number   Notes:  i) pin h.1 has a square solder pad
-    b.x: Shfty 5V logic pins                   ii) shifter's supplies: v.b > v.a  and  v.a >= 0
-    a.x: Shfty 3V logic pins                         --> (nominals) 5.1 = v.b & 3.3 = v.a <--
+  Pin mapping legend: { -w-wire-w-, =p=post=p= }
+  Scheme: h.x:(Nano NAME) -/- b.label | a.label(pll name) -/- num (X)  Where:
+    h.x: Nano pcb 'header' pin number   Notes:  i) Pin h.1 has a square solder pad
+    b.x: Shfty 5V logic pins                   ii) Shifty's supplies: v.b > v.a  and  v.a >= 0
+    a.x: Shfty 3V logic pins                        --> (nominals) 5.1 = v.b & 3.3 = v.a <--
   Nano                                 Shfty                 pll module
   30 pins                             18 pins                 9 wires. labeled (A) thru (I)
   ---              -/-                  ---         -/-      --- ________________________________
@@ -32,10 +32,10 @@
   h.13:D10(SS*)=p==============LE==p=b.5 | a.5(le)--w----w-6 (E) |   (B) clk | 4 | 3 | mux (C)  |
   h.12:D9=p========================p=b.4 | a.4  available.0      |   (F)  ld | 2 | 1 | pdr (G)  |
   h.11:D8=p========================p=b.3 | a.3  available.1      |------------------------------|
-  h.10:D7=p====================LD==p=b.2 | a.2(ld)--w----w-2 (F) | leave '0' open to provide a  |
-  h.9:D6=p====================PDR==p=b.1 | a.1(pdr)-w----w-1 (G) | [[sleeve]] jumper to '8'     |
-  h.27:(5V from Nano.reg5)-w--5V---w-b.v | v.a(3v3)-w----w-9 (H) <- (NOT h.17)
-  //                   (single point)-b.v-w-------------w-5V (I) <- to pll.reg3.3 input •5.5V MAX•
+  h.10:D7=p====================LD==p=b.2 | a.2(ld)--w----w-2 (F) | Leave '0' open to provide a  |
+  h.9:D6=p====================PDR==p=b.1 | a.1(pdr)-w----w-1 (G) | [[sleeve]] jumper to '8'.    |
+  h.27:(5V From Nano.reg5)-w--5V---w-b.v | v.a(3v3)-w----w-9 (H) <- (NOT h.17)
+  //                   (single point)-b.v-w-------------w-5V (I) <- To pll.reg3.3 input •5.5V MAX•
   h.29:(system.pwr.return-GND: Nano.reg5 return)
   h.30:(system.pwr.supply-VIN: Nano.reg5 input)
   ------------------------------------------------------------------------------------------------
@@ -53,7 +53,7 @@
   may cause gross modulation of the Nano 5V which in turn modulates the 3v3 to the extent of the
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but enough above 3v3 regulator dropout).
-  A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3 > 6V, only. */
+  A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only. */
   // Commented out, but wired:   D4                                      D11       D13
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
@@ -82,18 +82,18 @@ enum Symbol : u8 {  // human readable register 'field' identifiers
       auxFBselect,  muteTillLD,
       vcoPwrDown,   bandSelectClkDiv,
       rfDivSelect,  rfFBselect,       // 11
-  r5, _reserved5,    led_mode,        // 3
+  r5, _reserved5,   led_mode,         // 3
   end
-  };  static constexpr auto nSymbol{ Symbol::end }; // for subsequent sanity check only
+  };  static constexpr auto nSymbol{ Symbol::end }; // for subsequent 'sanity check' only
 using S = Symbol;
-static constexpr struct Specification { const u8 rank, offset, width; } ADF435x[] = { /*
-  Deduced via datasheet inspection.
-    N:      Number of (32 bit width) "registers": 6
-    rank:   Datasheet Register Number = N - 1 - rank
-            tx() in ascending rank order, unless not dirty. Thus, datasheet register '0' is
+static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
+  This entire struct is human deduced via inspection of the datasheet. Unique to the ADF435x.
+    N:      Number of (32 bit) "registers": 6
+    RANK:   Datasheet Register Number = N - 1 - RANK
+            tx() in ascending RANK order, unless not dirty. Thus, datasheet register '0' is
             always tx()'d last (and will always need to be tx()'d). See flush() below.
-    offset: Zero based position of the field's least significant bit.
-    width:  Correct. The number of bits in a field (and is at least one). •You get a gold star•
+    OFFSET: Zero based position of the field's least significant bit.
+    WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star•
    {  r0   }, { fraction }, { integer }, */
   {5,  0, 3}, {5,  3, 12}, {5, 15, 16}, /* r0 has 3 'fields'               begin taedium #1 of two
    {  r1   }, { modulus }, {  phase  },  Et cetera. */
@@ -114,45 +114,47 @@ struct SpecifiedOverlay {
   struct Frame {
     static constexpr auto N{ 6 };
     using Buffer = std::array<u32, N>; /*
-      With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
-      NB: Don't use the set() method to overwrite these. Yes. It is vulnerable to 'breakage'.
-      And while the purists gently weep, it is simple, clear, concise, and fully unencumbered.
-      Translation: No barriers. No speed bumps. If you try to break it, you will. Don't. */
-  u8 durty; Buffer bfr; } frame = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
+    With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
+    NB: Don't use the set() method to overwrite these. Yes. It is vulnerable to 'breakage'.
+    And while the purists gently weep, it is simple, clear, concise, and fully unencumbered.
+    Translation: No barriers. No speed bumps. If you try to break it, you will. Don't. */
+  u8 durty; Buffer bfr; } FRAME = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) {
-    constexpr auto weight = [](int index) {
+    constexpr auto WEIGHT = [](int index) {
       static constexpr u8 WeightTable[] = { 1, 2, 4, 8, 16, 32 };
       return WeightTable[index]; };
-    static constexpr u32 Mask[] = {
+    static constexpr u32 MASK[] = {
               0,    1,    3,    7,   15,   31,    63,   127,
       255,  511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
-    auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
-    frame.bfr[pSpec->rank] &= ( ~(        Mask[pSpec->width]   << pSpec->offset) ); // first off
-    frame.bfr[pSpec->rank] |= (  (value & Mask[pSpec->width] ) << pSpec->offset  ); // then on
-    frame.durty |= weight( (frame.N - 1) - pSpec->rank ); // encode which u32 was dirty'd
+    auto pSPEC = &ADF435x[ static_cast<const u8>( symbol ) ];
+    FRAME.bfr[pSPEC->RANK] &= ( ~(        MASK[pSPEC->WIDTH]   << pSPEC->OFFSET) ); // first off
+    FRAME.bfr[pSPEC->RANK] |= (  (value & MASK[pSPEC->WIDTH] ) << pSPEC->OFFSET  ); // then on
+    FRAME.durty |= WEIGHT( (FRAME.N - 1) - pSPEC->RANK ); // encode which u32 was dirty'd
     return *this; }
       // When it is appropriate to do so, flush() 'it' to the target (pll).
   auto flush() -> void {
     char cx{ 0 };
-    switch( frame.durty ) { // avoid the undirty'd
+    switch( FRAME.durty ) { // avoid the undirty'd
       default: break;                   /* otherwise: say they're all dirty */
       case 0: return;                   /* none dirty */
-      case 1: cx = frame.N - 1; break;  /* r0 ••• */
+      case 1: cx = FRAME.N - 1; break;  /* r0 ••• */
       case 2: /* fall thru */           /* r1 ••• */
-      case 3: cx = frame.N - 2; break;  /* r1 and r0 ••• */ }
-    frame.durty = 0;
+      case 3: cx = FRAME.N - 2; break;  /* r1 and r0 ••• */ }
+    FRAME.durty = 0;
     SPI.beginTransaction( SPISettings() );
-    for(/* empty */; frame.N != cx; ++cx) tx( &frame.bfr[cx], sizeof(frame.bfr[cx]) );
+    for(/* empty */; FRAME.N != cx; ++cx) tx( &FRAME.bfr[cx], sizeof(FRAME.bfr[cx]) );
     SPI.endTransaction(); /* Works plays well with others. */ }
 };  using Overlay = SpecifiedOverlay;
 Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradigm. Sigh.
   enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-  constexpr auto  C{ E::ON }; // Switch controlling optional reference correction.
-  constexpr auto  REF_ERROR{ -12 * 10.0 * (C) },  // Value via human. Zero based multiples of ten.
-                  OSC{ 25.000000e6 },     // Nominal reference freq. Yours may be different.
-                  REF{ OSC + REF_ERROR }; // Directly measured. YOURS WILL BE DIFFERENT.
-    static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
+  constexpr auto  FLAG{ E::ON };   // Switch controlling optional reference correction.
+  constexpr auto  CONSTRAINT{ 1e1 };                // Assertion failure avoidance.
+  constexpr auto  USER_TRIM{ -12 * CONSTRAINT };    // Zero based, via human working in -
+  constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  //  reverse from the 'REF' measurement, below.
+  constexpr auto  OSC{ 25.000000e6 },           // Nominal reference freq. Yours may be different.
+                  REF{ OSC + REF_ERROR };       // Directly measured. YOURS WILL BE DIFFERENT.
+  static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
    constexpr auto MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }, // Manifest constants ...
                   MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // ... from the datasheet
 constexpr enum CHANNEL { EVAL, CM23, CM33, OOK, TEK, CM70, M2, M3, M4, M5, M6, BOT } CHAN = M3;
