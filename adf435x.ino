@@ -118,7 +118,7 @@ struct SpecifiedOverlay {
     NB: Don't use the set() method to overwrite these. Yes. It is vulnerable to 'breakage'.
     And while the purists gently weep, it is simple, clear, concise, and fully unencumbered.
     Translation: No barriers. No speed bumps. If you try to break it, you will. Don't. */
-  u8 durty; Buffer bfr; } FRAME = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
+  u8 durty; Buffer bfr; } frame = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) {
     constexpr auto WEIGHT = [](int index) {
@@ -127,30 +127,30 @@ struct SpecifiedOverlay {
     static constexpr u32 MASK[] = {
               0,    1,    3,    7,   15,   31,    63,   127,
       255,  511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
-    auto pSPEC = &ADF435x[ static_cast<const u8>( symbol ) ];
-    FRAME.bfr[pSPEC->RANK] &= ( ~(        MASK[pSPEC->WIDTH]   << pSPEC->OFFSET) ); // first off
-    FRAME.bfr[pSPEC->RANK] |= (  (value & MASK[pSPEC->WIDTH] ) << pSPEC->OFFSET  ); // then on
-    FRAME.durty |= WEIGHT( (FRAME.N - 1) - pSPEC->RANK ); // encode which u32 was dirty'd
+    auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
+    frame.bfr[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // first off
+    frame.bfr[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // then on
+    frame.durty |= WEIGHT( (frame.N - 1) - pSpec->RANK ); // encode which u32 was dirty'd
     return *this; }
       // When it is appropriate to do so, flush() 'it' to the target (pll).
   auto flush() -> void {
     char cx{ 0 };
-    switch( FRAME.durty ) { // avoid the undirty'd
+    switch( frame.durty ) { // avoid the undirty'd
       default: break;                   /* otherwise: say they're all dirty */
       case 0: return;                   /* none dirty */
-      case 1: cx = FRAME.N - 1; break;  /* r0 ••• */
+      case 1: cx = frame.N - 1; break;  /* r0 ••• */
       case 2: /* fall thru */           /* r1 ••• */
-      case 3: cx = FRAME.N - 2; break;  /* r1 and r0 ••• */ }
-    FRAME.durty = 0;
+      case 3: cx = frame.N - 2; break;  /* r1 and r0 ••• */ }
+    frame.durty = 0;
     SPI.beginTransaction( SPISettings() );
-    for(/* empty */; FRAME.N != cx; ++cx) tx( &FRAME.bfr[cx], sizeof(FRAME.bfr[cx]) );
+    for(/* empty */; frame.N != cx; ++cx) tx( &frame.bfr[cx], sizeof(frame.bfr[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. */ }
 };  using Overlay = SpecifiedOverlay;
 Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradigm. Sigh.
   enum Enable { OFF = 0, ON = 1 };  using E = Enable;
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // Assertion failure avoidance.
-  constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in -
+  constexpr auto  USER_TRIM{ -12 * CONSTRAINT };    // Zero based, via human working in -
   constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // reverse from the 'REF' measurement, below.
   constexpr auto  OSC{ 25.000000e6 },           // Nominal reference freq. Yours may be different.
                   REF{ OSC + REF_ERROR };       // Directly measured. YOURS WILL BE DIFFERENT.
@@ -183,7 +183,7 @@ constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of C
       a temporary lapse of insight. */
   constexpr auto RF_DIVISOR = RF_DIVISOR_TABLE[ RF_DIVISOR_TABLE_INDEX ]; /* Use ToDo result here
     or otherwise arrive here, determining RF_DIVISOR by a means as yet to be determined */
-  /* FYI FAUX. All possible freq ranges. Note: freq. range is limited by VCO, not by REF.
+  /* FYI FAUX. All permitted freq. ranges. Note: freq. range is limited by VCO, not by REF.
     constexpr auto mid0{ (MAX_VCO - MIN_VCO) / 2 + MIN_VCO };// 3300 ± 1100 = {  4400, 2200   }
     constexpr auto mid1{ mid0 / RF_DIVISOR_TABLE[1] }; //    1650 ± 550     = {  2200, 1100   }
     constexpr auto mid2{ mid0 / RF_DIVISOR_TABLE[2] }; //     825 ± 275     = {  1100, 550    }
@@ -219,7 +219,7 @@ constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of C
 constexpr auto frEEqCHECK = (WHOLE + double(FRACTION) / MODULUS) * PFD / RF_DIVISOR;
 constexpr auto ERROR = TUNE[ CHAN ].FREQ - frEEqCHECK;  // <- Eyeball this.
   constexpr auto ABSOLUTE_ERROR = (0 <= ERROR) ? ERROR : -ERROR;
-  static_assert( ABSOLUTE_ERROR < STEP / 2 );  // For lack of something better.
+  static_assert( ABSOLUTE_ERROR < STEP / 2 );  // For lack of something better that is non-zero.
   // "And away we go!" Gleason.
 auto setup() -> void {  /* Up to this point, computation has been accomplished by the compiler. */
   SPI.begin();
