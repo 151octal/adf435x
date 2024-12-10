@@ -120,10 +120,10 @@ struct SpecifiedOverlay {  // ©2024 kd9fww
   u8 durty; SPISettings settings; Buffer bfr; } frame = 
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
-  auto set( S symbol,u16 value ) -> decltype(*this) {            // Cut from here to ...
-    switch (symbol) { // (silently) enforce 'invariants'. Its a slow-up 8-(
+  auto set( S symbol,u16 value ) -> decltype(*this) {   //|<- To skip enforcement, cut from there.
+    switch (symbol) { // (silently) Enforce 'invariants'. It's a (really unecessary) slow-up. 8-(
       default: break; case S::r0: case S::r1: case S::r2: case S::r3:
-      case S::r4: case S::r5: case S::_res5: return *this; }  // (You could skip it) ... to here.
+      case S::r4: case S::r5: case S::_res5: return *this; } // Or condition compile, to here. ->|
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
     auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
