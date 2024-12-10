@@ -111,38 +111,38 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));       // sane, at last, haha!
   // ©2024 kd9fww
 struct SpecifiedOverlay {  // ©2024 kd9fww
-  struct Frame {
+  struct Device {
     static constexpr auto N{ 6 };
-    using Buffer = std::array<u32, N>; /*
-      With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
+    using RegArray = std::array<u32, N>; /*
+      With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. 
       This mechanism adheres to the principle of 'Resource Aquisition Is Initialization'. As such,
       is principled, clear, concise, and unencumbered. Translation: No speed bumps. No barriers. */
-  u8 durty; SPISettings settings; Buffer bfr; } frame = 
-  { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
+  u8 durty; SPISettings settings; RegArray reg; } dev =
+  { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
-  auto set( S symbol,u16 value ) -> decltype(*this) {   //|<- To skip enforcement, cut from there.
-    switch (symbol) { // (silently) Enforce 'invariants'. It's a (really unecessary) slow-up. 8-(
-      default: break; case S::r0: case S::r1: case S::r2: case S::r3:
-      case S::r4: case S::r5: case S::_res5: return *this; } // Or condition compile, to here. ->|
+  auto set( S symbol,u16 value ) -> decltype(*this) {   //|<- For no enforcement, cut from there.
+    switch (symbol) { // (silently) Enforce 'invariants'. I don't like it. It's a slow-up. 8-(
+      default: break; case S::r0: case S::r1: case S::r2: case S::r3:  // forthought removes S::rX
+      case S::r4: case S::r5: case S::_res5: return *this; }                  // ••• to here. ->|
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
     auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
-    frame.bfr[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // first off
-    frame.bfr[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // then on
+    dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // first off
+    dev.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // then on
     static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
-    frame.durty |= WEIGHT[ (frame.N - 1) - pSpec->RANK ]; // encode which frame.bfr was dirty'd
+    dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // encode which dev.reg was dirty'd
     return *this; }
   auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
     char cx{ 0 };
-    switch( frame.durty ) { // Avoid the undirty'd. Well, almost.
+    switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
       default: break;                   /* Otherwise: say they're all dirty. */
       case 0: return;                   /* None dirty. */
-      case 1: cx = frame.N - 1; break;  /* r0 ••• */
+      case 1: cx = dev.N - 1; break;  /* r0 ••• */
       case 2: /* fall thru */           /* r1 ••• */
-      case 3: cx = frame.N - 2; break;  /* r1 and r0 ••• */ }
-    frame.durty = 0;
-    SPI.beginTransaction( frame.settings );
-    for(/* empty */; frame.N != cx; ++cx) tx( &frame.bfr[cx], sizeof(frame.bfr[cx]) );
+      case 3: cx = dev.N - 2; break;  /* r1 and r0 ••• */ }
+    dev.durty = 0;
+    SPI.beginTransaction( dev.settings );
+    for(/* empty */; dev.N != cx; ++cx) tx( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. */ }
 };  using Overlay = SpecifiedOverlay;
 Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradigm. Sigh.
