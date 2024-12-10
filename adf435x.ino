@@ -8,7 +8,7 @@
   chip + bypass cap) assembly. It's pinout is labeled. I acquired mine, and the Nano, for cheap
   from the same aforementioned company. */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
-#include <SPI.h>  /* Assembly in a nutshell:
+#include <SPI.h>  /* Circuitry in a nutshell:
   The Shfty is post † soldered to the Nano such that the pins b1..b6 directly connect to the
   Nano's pcb pins h9..h14. Wire-wrap the rest. Limit to 7cm and common mode choke the aggregate
   of (qty:9) wires connecting the ADF435x module. Supply the ADF435x module from the Nano's on
@@ -21,7 +21,7 @@
     b.x: Shfty 5V logic pins                   ii) Shifty's supplies: v.b > v.a  and  v.a >= 0
     a.x: Shfty 3V logic pins                        --> (nominals) 5.1 = v.b & 3.3 = v.a <--
   Nano                                 Shfty                 pll module
-  30 pins                             18 pins                 9 wires. labeled (A) thru (I)
+  30 pins                             18 pins                 9 wires. Denoted (A) thru (I)
   ---              -/-                  ---         -/-      --- ________________________________
   //         (single point)-ground-w-GND-w---------------w-7 (A) |  ADF435x module pin header   |
   h.4:(GND)-w----------------------w-GND | oe-w-----w-v.a        |     component side view      |
@@ -120,7 +120,7 @@ struct SpecifiedOverlay {  // ©2024 kd9fww
   u8 durty; Buffer bfr; } frame = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) {
-    switch (symbol) { // (silently) enforce 'invariants', Its a slow-up 8-( You could skip it...
+    switch (symbol) { // (silently) enforce 'invariants'. Its a slow-up 8-( You could skip it ...
       default: break; case S::r0: case S::r1: case S::r2: case S::r3:
       case S::r4: case S::r5: case S::_res5: return *this; }
     static constexpr u32 MASK[] = {
