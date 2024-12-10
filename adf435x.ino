@@ -63,26 +63,26 @@ auto tx(void *pByte, int nByte) -> void { // SPI stuff here (only)
   while( nByte-- ) SPI.transfer( *(--p) );        // return value is ignored
   digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // data is latched on the rising edge
 enum Symbol : u8 {  // human readable register 'field' identifiers
-  r0 = 0,           // in datasheet order. Enumerant names do NOT mirror datasheet's names exactly
-      fraction,     integer,          // register 0 has 3 symbols
-  r1, modulus,      phase,
-      prescaler,    phase_adjust,     // 5
-  r2, counterReset, cp3state,
+      // in datasheet order. Enumerant names do NOT mirror datasheet's names exactly
+      fraction,     integer,          // register 0 has 2 symbols
+      modulus,      phase,
+      prescaler,    phase_adjust,     // 4
+      counterReset, cp3state,
       idle,         pdPolarity,
       ldp,          ldf,
       cpIndex,      dblBfr,
       rCounter,     refToggler,
       refDoubler,   muxOut,
-      LnLsModes,                      // 14
-  r3, clkDivider,   clkDivMode,
+      LnLsModes,                      // 13
+      clkDivider,   clkDivMode,
       csr,          chrgCancel,
-      abp,          bscMode,          // 7
-  r4, rfOutPwr,     rfOutEnable,
+      abp,          bscMode,          // 6
+      rfOutPwr,     rfOutEnable,
       auxOutPwr,    auxOutEnable,
       auxFBselect,  muteTillLD,
       vcoPwrDown,   bandSelectClkDiv,
-      rfDivSelect,  rfFBselect,       // 11
-  r5, _res5,        led_mode,         // 3
+      rfDivSelect,  rfFBselect,       // 10
+      led_mode,                       // 1
   end
   };  static constexpr auto nSymbol{ Symbol::end }; // for subsequent 'sanity check' only
 using S = Symbol;
@@ -94,21 +94,18 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
             always tx()'d last (and will always need to be tx()'d). See flush() below.
     OFFSET: Zero based position of the field's least significant bit.
     WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star•
-   {  r0   }, { fraction }, { integer }, */
-  {5,  0, 3}, {5,  3, 12}, {5, 15, 16}, /* r0 has 3 'fields'               begin taedium #1 of two
-   {  r1   }, { modulus }, {  phase  },  Et cetera. */
-  {4,  0, 3}, {4,  3, 12}, {4, 15, 12}, {4, 27,  1}, {4, 28,  1},
-   // r2
+   { fraction }, { integer }, */
+  {5,  3, 12}, {5, 15, 16}, /* r0                                      // begin taedium #1 of two
+   { modulus }, {  phase  },  Et cetera. */
+  {4,  3, 12}, {4, 15, 12}, {4, 27,  1}, {4, 28,  1}, // r1
   {3,  0, 3}, {3,  3,  1}, {3,  4,  1}, {3,  5,  1}, {3,  6,  1}, {3,  7,  1}, {3,  8,  1},
-  {3,  9, 4}, {3, 13,  1}, {3, 14, 10}, {3, 24,  1}, {3, 25,  1}, {3, 26,  3}, {3, 29,  2},
-   // r3
-  {2,  0, 3}, {2,  3, 12}, {2, 15,  2}, {2, 18,  1}, {2, 21,  1}, {2, 22,  1}, {2, 23,  1},
-   // r4
+  {3, 13,  1}, {3, 14, 10}, {3, 24,  1}, {3, 25,  1}, {3, 26,  3}, {3, 29,  2}, // r2
+  {2,  3, 12}, {2, 15,  2}, {2, 18,  1}, {2, 21,  1}, {2, 22,  1}, {2, 23,  1}, // r3
   {1,  0, 3}, {1,  3,  2}, {1,  5,  1}, {1,  6,  2}, {1,  8,  1}, {1,  9,  1}, {1, 10,  1},
-  {1, 11, 1}, {1, 12,  8}, {1, 20,  3}, {1, 23,  1}, /*
-   {  r5   }, { resv'd  }, { LEDmode } */
-  {0,  0, 3}, {0, 19,  2}, {0, 22,  2} };                                 // end taedium #1 of two
-  static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));       // sane, at last, haha!
+  {1, 12,  8}, {1, 20,  3}, {1, 23,  1}, /* r4
+   { LEDmode } */
+  {0, 22,  2} }; // r5                                                    // end taedium #1 of two
+  static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));       // sane, at last, hahaha!
   // ©2024 kd9fww
 struct SpecifiedOverlay {  // ©2024 kd9fww
   struct Device {
@@ -120,10 +117,7 @@ struct SpecifiedOverlay {  // ©2024 kd9fww
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
-  auto set( S symbol,u16 value ) -> decltype(*this) {   //|<- For no enforcement, cut from there.
-    switch (symbol) { // (silently) Enforce 'invariants'. I don't like it. It's a slow-up. 8-(
-      default: break; case S::r0: case S::r1: case S::r2: case S::r3:  // forthought removes S::rX
-      case S::r4: case S::r5: case S::_res5: return *this; }                  // ••• to here. ->|
+  auto set( S symbol,u16 value ) -> decltype(*this) {
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
     auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
