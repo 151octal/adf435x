@@ -107,23 +107,23 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   {1,  0, 3}, {1,  3,  2}, {1,  5,  1}, {1,  6,  2}, {1,  8,  1}, {1,  9,  1}, {1, 10,  1},
   {1, 11, 1}, {1, 12,  8}, {1, 20,  3}, {1, 23,  1}, /*
    {  r5   }, { resv'd  }, { LEDmode } */
-  {0,  0, 3}, {0, 19,  2}, {0, 22,  2} };                               // end taedium #1 of two
-  static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));     // sane, at last, haha!
+  {0,  0, 3}, {0, 19,  2}, {0, 22,  2} };                                 // end taedium #1 of two
+  static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));       // sane, at last, haha!
   // ©2024 kd9fww
 struct SpecifiedOverlay {  // ©2024 kd9fww
   struct Frame {
     static constexpr auto N{ 6 };
     using Buffer = std::array<u32, N>; /*
-    With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
+      With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
       This mechanism adheres to the principle of 'Resource Aquisition Is Initialization'. As such,
-      is principled, clear, concise and unencumbered. Translation: No speed bumps. No barriers. */
-    u8 durty; SPISettings settings; Buffer bfr; } frame = 
-    { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
+      is principled, clear, concise, and unencumbered. Translation: No speed bumps. No barriers. */
+  u8 durty; SPISettings settings; Buffer bfr; } frame = 
+  { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
-  auto set( S symbol,u16 value ) -> decltype(*this) {
-    switch (symbol) { // (silently) enforce 'invariants'. Its a slow-up 8-( You could skip it ...
+  auto set( S symbol,u16 value ) -> decltype(*this) {            // Cut from here to ...
+    switch (symbol) { // (silently) enforce 'invariants'. Its a slow-up 8-(
       default: break; case S::r0: case S::r1: case S::r2: case S::r3:
-      case S::r4: case S::r5: case S::_res5: return *this; }
+      case S::r4: case S::r5: case S::_res5: return *this; }  // (You could skip it) ... to here.
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
     auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
@@ -134,9 +134,9 @@ struct SpecifiedOverlay {  // ©2024 kd9fww
     return *this; }
   auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
     char cx{ 0 };
-    switch( frame.durty ) { // avoid the undirty'd
-      default: break;                   /* otherwise: say they're all dirty */
-      case 0: return;                   /* none dirty */
+    switch( frame.durty ) { // Avoid the undirty'd. Well, almost.
+      default: break;                   /* Otherwise: say they're all dirty. */
+      case 0: return;                   /* None dirty. */
       case 1: cx = frame.N - 1; break;  /* r0 ••• */
       case 2: /* fall thru */           /* r1 ••• */
       case 3: cx = frame.N - 2; break;  /* r1 and r0 ••• */ }
