@@ -1,6 +1,6 @@
-/* ©kd9fww 2024. ADF435x stand alone using Arduino Nano hardware SPI. (in 300 lines)
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines and 3k mem).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
-  https://www.analog.com/ADF4351 <- Mhe device for which this code is specifically tailored.
+  https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
   US$45, for an assembled pll module from a company with the same name as a South American river.
   Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty;
@@ -60,7 +60,7 @@ auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // 
 auto tx(void *pByte, int nByte) -> void { // SPI stuff here (only)
   auto p = static_cast<u8*>(pByte) + nByte;       // most significant BYTE first
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // predicate condition for data transfer
-  while( nByte-- ) SPI.transfer( *(--p) );       // return value is ignored
+  while( nByte-- ) SPI.transfer( *(--p) );        // return value is ignored
   digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // data is latched on the rising edge
 enum Symbol : u8 {  // human readable register 'field' identifiers
   r0 = 0,           // in datasheet order. Enumerant names do NOT mirror datasheet's names exactly
@@ -82,7 +82,7 @@ enum Symbol : u8 {  // human readable register 'field' identifiers
       auxFBselect,  muteTillLD,
       vcoPwrDown,   bandSelectClkDiv,
       rfDivSelect,  rfFBselect,       // 11
-  r5, _reserved5,   led_mode,         // 3
+  r5, _res5,        led_mode,         // 3
   end
   };  static constexpr auto nSymbol{ Symbol::end }; // for subsequent 'sanity check' only
 using S = Symbol;
@@ -109,31 +109,29 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
    {  r5   }, { resv'd  }, { LEDmode } */
   {0,  0, 3}, {0, 19,  2}, {0, 22,  2} };                               // end taedium #1 of two
   static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));     // sane, at last, haha!
-  // ©kd9fww 2024
-struct SpecifiedOverlay {
+  // ©2024 kd9fww
+struct SpecifiedOverlay {  // ©2024 kd9fww
   struct Frame {
     static constexpr auto N{ 6 };
     using Buffer = std::array<u32, N>; /*
     With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
-    NB: Don't use the set() method to overwrite these. Yes. It is vulnerable to 'breakage'.
-    And while the purists gently weep, it is simple, clear, concise, and fully unencumbered.
-    Translation: No barriers. No speed bumps. If you try to break it, you will. Don't. */
+    This mechanism adheres to the principle of 'Resource Aquisition Is Initialization'. As such,
+    is principled, clear, concise and unencumbered. Translation: No speed bumps <- No barriers. */
   u8 durty; Buffer bfr; } frame = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) {
-    constexpr auto WEIGHT = [](int index) {
-      static constexpr u8 WEIGHT_TABLE[] = { 1, 2, 4, 8, 16, 32 };
-      return WEIGHT_TABLE[index]; };
+    switch (symbol) { // (silently) enforce 'invariants', Its a slow-up 8-( You could skip it...
+      default: break; case S::r0: case S::r1: case S::r2: case S::r3:
+      case S::r4: case S::r5: case S::_res5: return *this; }
     static constexpr u32 MASK[] = {
-              0,    1,    3,    7,   15,   31,    63,   127,
-      255,  511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
+      0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
     auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
     frame.bfr[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // first off
     frame.bfr[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // then on
-    frame.durty |= WEIGHT( (frame.N - 1) - pSpec->RANK ); // encode which u32 was dirty'd
+    static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
+    frame.durty |= WEIGHT[ (frame.N - 1) - pSpec->RANK ]; // encode which frame.bfr was dirty'd
     return *this; }
-      // When it is appropriate to do so, flush() 'it' to the target (pll).
-  auto flush() -> void {
+  auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
     char cx{ 0 };
     switch( frame.durty ) { // avoid the undirty'd
       default: break;                   /* otherwise: say they're all dirty */
