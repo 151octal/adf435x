@@ -63,28 +63,28 @@ auto tx(void *pByte, int nByte) -> void { // SPI stuff here (only)
   while( nByte-- ) SPI.transfer( *(--p) );        // return value is ignored
   digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // data is latched on the rising edge
 enum Symbol : u8 {  // human readable register 'field' identifiers
-      // in datasheet order. Enumerant names do NOT mirror datasheet's names exactly
-      fraction,     integer,          // register 0 has 2 symbols
-      modulus,      phase,
-      prescaler,    phase_adjust,     // 4
-      counterReset, cp3state,
-      idle,         pdPolarity,
-      ldp,          ldf,
-      cpIndex,      dblBfr,
-      rCounter,     refToggler,
-      refDoubler,   muxOut,
-      LnLsModes,                      // 13
-      clkDivider,   clkDivMode,
-      csr,          chrgCancel,
-      abp,          bscMode,          // 6
-      rfOutPwr,     rfOutEnable,
-      auxOutPwr,    auxOutEnable,
-      auxFBselect,  muteTillLD,
-      vcoPwrDown,   bandSelectClkDiv,
-      rfDivSelect,  rfFBselect,       // 10
-      led_mode,                       // 1
-  end
-  };  static constexpr auto nSymbol{ Symbol::end }; // for subsequent 'sanity check' only
+    // in datasheet order. Enumerant names do NOT mirror datasheet's names exactly
+    fraction,     integer,          // register 0 has 2 symbols
+    modulus,      phase,
+    prescaler,    phase_adjust,     // 4
+    counterReset, cp3state,
+    idle,         pdPolarity,
+    ldp,          ldf,
+    cpIndex,      dblBfr,
+    rCounter,     refToggler,
+    refDoubler,   muxOut,
+    LnLsModes,                      // 13
+    clkDivider,   clkDivMode,
+    csr,          chrgCancel,
+    abp,          bscMode,          // 6
+    rfOutPwr,     rfOutEnable,
+    auxOutPwr,    auxOutEnable,
+    auxFBselect,  muteTillLD,
+    vcoPwrDown,   bandSelectClkDiv,
+    rfDivSelect,  rfFBselect,       // 10
+    led_mode,                       // 1
+  _end
+  };  static constexpr auto nSymbol{ Symbol::_end }; // for subsequent 'sanity check' only
 using S = Symbol;
 static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
   This entire struct is human deduced via inspection of the datasheet. Unique to the ADF435x.
@@ -107,7 +107,7 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   {0, 22,  2} }; // r5                                                    // end taedium #1 of two
   static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));       // sane, at last, hahaha!
   // ©2024 kd9fww
-struct SpecifiedOverlay {  // ©2024 kd9fww
+struct SpecifiedOverlay {
   struct Device {
     static constexpr auto N{ 6 };
     using RegArray = std::array<u32, N>; /*
@@ -131,9 +131,9 @@ struct SpecifiedOverlay {  // ©2024 kd9fww
     switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
       default: break;                   /* Otherwise: say they're all dirty. */
       case 0: return;                   /* None dirty. */
-      case 1: cx = dev.N - 1; break;  /* r0 ••• */
+      case 1: cx = dev.N - 1; break;    /* r0 ••• */
       case 2: /* fall thru */           /* r1 ••• */
-      case 3: cx = dev.N - 2; break;  /* r1 and r0 ••• */ }
+      case 3: cx = dev.N - 2; break;    /* r1 and r0 ••• */ }
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) tx( &dev.reg[cx], sizeof(dev.reg[cx]) );
@@ -225,7 +225,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   pinMode(static_cast<u8>(PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ Overlay temp; /* Setup a temporary, Specified Overlay.
-  (Qty:36) unique calls of set() are required, in any order. Be sure to flush() after saving. */
+  (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving. */
     // r0
   temp.set( S::fraction, FRACTION );  // begin taedium #2 of two                              (1)
   temp.set( S::integer, WHOLE );                                                           // (2)
@@ -233,8 +233,8 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::modulus, MODULUS );                                                         // (3)
   temp.set( S::phase, 1);  // adjust phase AFTER loop lock                                    (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
-  enum PreScale { four5ths = 0, eight9ths };
-  temp.set( S::prescaler, (75 < WHOLE) ? PreScale::eight9ths : PreScale::four5ths );       // (6)
+  enum PRSCL { four5ths = 0, eight9ths };
+  temp.set( S::prescaler, (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths );             // (6)
     // r2
   temp.set( S::counterReset, E::OFF );                                                     // (7)
   temp.set( S::cp3state, E::OFF );                                                         // (8)
@@ -259,9 +259,9 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::clkDivider, CLKDIV );                                                       // (20)
   enum ClockingMode { dividerOff = 0, fastLock, phResync }; // dunno, still
   temp.set( S::clkDivMode, ClockingMode::dividerOff );                                     // (21)
-  temp.set( S::csr, E::ON );                                                               // (22)
+  temp.set( S::csr, E::ON ); // Cycle Slip reduction                                          (22)
   temp.set( S::chrgCancel, E::OFF );                                                       // (23)
-  enum ABPnS { nS6fracN = 0, nS3intN };
+  enum ABPnS { nS6fracN = 0, nS3intN };   // AntiBacklash Pulse nanoSeconds
   temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
   enum BandSelMd { automatic = 0, programmed };
   temp.set( S::bscMode, (MIN_PFD < PFD) ? BandSelMd::programmed : BandSelMd::automatic );  // (25)
@@ -275,7 +275,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::auxFBselect, Feedback ); // untested because I can't                           (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
-  constexpr auto BscClkDiv = round(PFD / MIN_PFD);
+  constexpr auto BscClkDiv = round(PFD / MIN_PFD); //round-off bug
     static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // non-zero 8 bit value
   temp.set( S::bandSelectClkDiv, u8(BscClkDiv) );                                          // (33)
   temp.set( S::rfDivSelect, RF_DIVISOR_TABLE_INDEX );                                      // (34)
