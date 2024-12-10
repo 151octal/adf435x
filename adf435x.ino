@@ -261,7 +261,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
     static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
   temp.set( S::LnLsModes, nsMode );                                                        // (19)
     // r3
-  temp.set( S::clkDivider, u16(CLKDIV) );                                                  // (20)
+  temp.set( S::clkDivider, CLKDIV );                                                       // (20)
   enum ClockingMode { dividerOff = 0, fastLock, phResync }; // dunno, still
   temp.set( S::clkDivMode, ClockingMode::dividerOff );                                     // (21)
   temp.set( S::csr, E::ON );                                                               // (22)
