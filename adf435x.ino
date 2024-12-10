@@ -1,4 +1,4 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines and 3k mem).
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 3k memory).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
@@ -115,9 +115,10 @@ struct SpecifiedOverlay {  // ©2024 kd9fww
     static constexpr auto N{ 6 };
     using Buffer = std::array<u32, N>; /*
     With the exception of r5 bits 19 and 20, all "reserved" bits must be set to zero. 
-    This mechanism adheres to the principle of 'Resource Aquisition Is Initialization'. As such,
-    is principled, clear, concise and unencumbered. Translation: No speed bumps <- No barriers. */
-  u8 durty; Buffer bfr; } frame = { 0, Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
+      This mechanism adheres to the principle of 'Resource Aquisition Is Initialization'. As such,
+      is principled, clear, concise and unencumbered. Translation: No speed bumps. No barriers. */
+    u8 durty; SPISettings settings; Buffer bfr; } frame = 
+    { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Frame::Buffer{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) {
     switch (symbol) { // (silently) enforce 'invariants'. Its a slow-up 8-( You could skip it ...
@@ -140,7 +141,7 @@ struct SpecifiedOverlay {  // ©2024 kd9fww
       case 2: /* fall thru */           /* r1 ••• */
       case 3: cx = frame.N - 2; break;  /* r1 and r0 ••• */ }
     frame.durty = 0;
-    SPI.beginTransaction( SPISettings() );
+    SPI.beginTransaction( frame.settings );
     for(/* empty */; frame.N != cx; ++cx) tx( &frame.bfr[cx], sizeof(frame.bfr[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. */ }
 };  using Overlay = SpecifiedOverlay;
