@@ -38,6 +38,9 @@
   //                   (single point)-b.v-w-------------w-5V (I) <- To pll.reg3.3 input •5.5V MAX•
   h.29:(system.pwr.return-GND: Nano.reg5 return)
   h.30:(system.pwr.supply-VIN: Nano.reg5 input)
+  A second pll would be accomodated with it's {le, ld} on {D9, D8}, respectively. And sharing
+  their {5v, clk, dat, pdr, GND} lines. With {3v3, mux} from one pll only. This code is a single
+  pll version only. •This scheme doesn't preclude the possibilty of supporting two plls•
   ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
@@ -65,7 +68,7 @@ auto tx(void *pByte, int nByte) -> void { // SPI stuff here.
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
-    phase,        prescaler,    phase_adjust,     // 4
+    phase,        prescaler,    phase_adjust,
     counterReset, cp3state,     idle,
     pdPolarity,   ldp,          ldf,
     cpIndex,      dblBfr,       rCounter,
@@ -77,7 +80,7 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     muteTillLD,   vcoPwrDown,   bandSelectClkDiv,
     rfDivSelect,  rfFBselect,   led_mode,
     _end
-  };  static constexpr auto nSymbol{ Symbol::_end };        // For subsequent 'sanity check' only.
+  };
 using S = Symbol;
 static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
   Human deduced via inspection of the datasheet. Unique to the ADF435x.
@@ -98,9 +101,9 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfOutEnable] = {1, 5, 1},
   [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},
-  [S::bandSelectClkDiv] = {1, 12, 8},                             [S::rfDivSelect] = {1, 20, 3},
-  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
-  static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));      // Sane, at last, hahaha!
+  [S::bandSelectClkDiv] = {1, 12, 8},
+  [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
+    static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
   // ©2024 kd9fww
 struct SpecifiedOverlay {
   struct Device {
@@ -138,16 +141,16 @@ Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradig
   enum Enable { OFF = 0, ON = 1 };  using E = Enable;
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // Assertion failure avoidance.
-  constexpr auto  USER_TRIM{ -12 * CONSTRAINT };    // Zero based, via human working in -
-  constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // reverse from the 'REF' measurement, below.
-  constexpr auto  OSC{ 25.000000e6 },           // Nominal reference freq. Yours may be different.
-                  REF{ OSC + REF_ERROR };       // Directly measured. YOURS WILL BE DIFFERENT.
+  constexpr auto  USER_TRIM{ -12 * CONSTRAINT };    // Zero based, via human working in reverse,
+  constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // from the 'REF' measurement, below.
+  constexpr auto  OSC{ 25.000000e6 };           // Nominal reference freq. Yours may be different.
+  constexpr auto  REF{ OSC + REF_ERROR };       // Directly measured. YOURS WILL BE DIFFERENT.
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-   constexpr auto MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }, // Manifest constants ...
-                  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // ... from the datasheet
+  constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }; // Manifest constants ...
+  constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // ... from the datasheet
 constexpr enum CHANNEL { EVAL, CM23, CM33, CM70, OOK, TEK, M2, M3, M4, M5, M6, BOT } CHAN = M3;
-  // "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
-  // until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865.
+  /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
+     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of CHANNELs.
 /* Start here. Add your member (and assign it), or modify one of these (and assign it).
   { [enum] = {  frequency, divisor table index } */
@@ -158,7 +161,7 @@ constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of C
      [OOK] = { 0433.920000e6, 3 },    // To get 430MHz, divide the VCO by 8 (= 2 * 2 * 2) <- 3 .
      [TEK] = { 0430.350000e6, 3 },    // My crystal controlled data radio.
       [M2] = { 0146.000000e6, 4 },    // (144 - 148) MHz <- call, 2m ham band.
-      [M3] = { 0098.765432e6, 5 },    // (88 - 108) MHz <- FM broadcast band in the US.
+      [M3] = { 0099.999999e6, 5 },    // (88 - 108) MHz <- FM broadcast band in the US.
       [M4] = { 0075.757575e6, 5 },
       [M5] = { 0066.666666e6, 6 },    // <- VCO divided by 64. See FYI FAUX 'declarations' below.
       [M6] = { 0045.678901e6, 6 },    // (50 - 54) MHz <- 6m ham band.
@@ -281,7 +284,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 pll.flush();  wait4lock();  // That pretty blue led indicates phase lock.
-  // Now, set phase (at 180º). Can't test this, yet.
+  // Now, set phase (at 180º). I haven't determined how to test one pll, yet. It stays locked ...
   // pll.set( S::phase_adjust,E::ON ).set( S::phase,(MODULUS >> 1) ).flush();
 /* End setup() */ }
   // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
