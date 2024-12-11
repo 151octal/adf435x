@@ -38,8 +38,8 @@
   //                   (single point)-b.v-w-------------w-5V (I) <- To pll.reg3.3 input •5.5V MAX•
   h.29:(system.pwr.return-GND: Nano.reg5 return)
   h.30:(system.pwr.supply-VIN: Nano.reg5 input)
-  A second pll would be accomodated with it's {le, ld} on {D9, D8}, respectively. And sharing
-  their {5v, clk, dat, pdr, GND} lines. With {3v3, mux} from one pll only. This code is a single
+  A second pll would be accommodated with it's {le, ld} on {D9, D8}, respectively. And sharing
+  their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from one pll only. This code is a single
   pll version only. •This scheme doesn't preclude the possibilty of supporting two plls•
   ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
@@ -115,7 +115,7 @@ struct SpecifiedOverlay {
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
-  auto set( S symbol,u16 value ) -> decltype(*this) {
+  auto set( S symbol,u16 value ) -> decltype(*this) { // ADF435x; Magnitude > u16? False. O.K.
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
     auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
@@ -137,7 +137,7 @@ struct SpecifiedOverlay {
     for(/* empty */; dev.N != cx; ++cx) tx( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. */ }
 };  using Overlay = SpecifiedOverlay;
-Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradigm. Sigh.
+Overlay pll;  // Global scope in order to accommodate the setup();loop(); paradigm. Sigh.
   enum Enable { OFF = 0, ON = 1 };  using E = Enable;
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // Assertion failure avoidance.
