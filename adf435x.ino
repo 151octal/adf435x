@@ -284,7 +284,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 pll.flush();  wait4lock();  // That pretty blue led indicates phase lock.
-  // Now, set phase (at 180º). I haven't determined how to test one pll, yet. It stays locked ...
+  // Now, set phase (at 180º). I haven't determined how to phase test one pll, YET. It locks ...
   // pll.set( S::phase_adjust,E::ON ).set( S::phase,(MODULUS >> 1) ).flush();
 /* End setup() */ }
   // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
