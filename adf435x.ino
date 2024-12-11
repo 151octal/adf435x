@@ -102,7 +102,7 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   {3, 13,  1}, {3, 14, 10}, {3, 24,  1}, {3, 25,  1}, {3, 26,  3}, {3, 29,  2}, // r2
   {2,  3, 12}, {2, 15,  2}, {2, 18,  1}, {2, 21,  1}, {2, 22,  1}, {2, 23,  1}, // r3
   {1,  3,  2}, {1,  5,  1}, {1,  6,  2}, {1,  8,  1}, {1,  9,  1}, {1, 10,  1},
-  {1, 11,  1}, {1, 12,  8}, {1, 20,  3}, {1, 23,  1},
+  {1, 11,  1}, {1, 12,  8}, {1, 20,  3}, {1, 23,  1}, // r4
   {0, 22,  2} }; // r5                                                    // end taedium #1 of two
   static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));       // sane, at last, hahaha!
   // ©2024 kd9fww
@@ -120,10 +120,10 @@ struct SpecifiedOverlay {
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
     auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
-    dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // first off
-    dev.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // then on
+    dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
+    dev.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // Then, on.
     static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
-    dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // encode which dev.reg was dirty'd
+    dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
     return *this; }
   auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
     char cx{ 0 };
@@ -149,7 +149,7 @@ Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradig
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
    constexpr auto MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }, // Manifest constants ...
                   MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // ... from the datasheet
-constexpr enum CHANNEL { EVAL, CM23, CM33, OOK, TEK, CM70, M2, M3, M4, M5, M6, BOT } CHAN = M3;
+constexpr enum CHANNEL { EVAL, CM23, CM33, CM70, OOK, TEK, M2, M3, M4, M5, M6, BOT } CHAN = M6;
   // "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
   // until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865.
 constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of CHANNELs.
@@ -158,9 +158,9 @@ constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of C
     [EVAL] = { 2500.000000e6, 0 },    // The default freq. setting in the mfr's evaluation program
     [CM23] = { 1300.000000e6, 1 },    // (1240 - 1300) MHz <- 23cm ham band.
     [CM33] = { 0910.000000e6, 2 },
+    [CM70] = { 0446.000000e6, 3 },    // (420 - 450) MHz <- call, 70cm ham band.
      [OOK] = { 0433.920000e6, 3 },    // To get 430MHz, divide the VCO by 8 (= 2 * 2 * 2) <- 3 .
      [TEK] = { 0430.350000e6, 3 },    // My crystal controlled data radio.
-    [CM70] = { 0446.000000e6, 3 },    // (420 - 450) MHz <- call, 70cm ham band.
       [M2] = { 0146.000000e6, 4 },    // (144 - 148) MHz <- call, 2m ham band.
       [M3] = { 0098.765432e6, 5 },    // (88 - 108) MHz <- FM broadcast band in the US.
       [M4] = { 0075.757575e6, 5 },
@@ -226,11 +226,11 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
 { /* Enter another scope. */ Overlay temp; /* Setup a temporary, Specified Overlay.
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving. */
     // r0
-  temp.set( S::fraction, FRACTION );  // begin taedium #2 of two                              (1)
+  temp.set( S::fraction, FRACTION );                              // Begin taedium #2 of two. (1)
   temp.set( S::integer, WHOLE );                                                           // (2)
     // r1
   temp.set( S::modulus, MODULUS );                                                         // (3)
-  temp.set( S::phase, 1);  // adjust phase AFTER loop lock                                    (4)
+  temp.set( S::phase, 1);  // Adjust phase AFTER loop lock.                                   (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
   enum PRSCL { four5ths = 0, eight9ths };
   temp.set( S::prescaler, (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths );             // (6)
@@ -244,7 +244,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::ldp, LDPnS::ten );                                                          // (11)
   enum LockDetectFunction{ fracN = 0, intN }; 
   temp.set( S::ldf, LockDetectFunction::fracN );                                           // (12)
-  temp.set( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth        (13)
+  temp.set( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.       (13)
   temp.set( S::dblBfr, E::ON );                                                            // (14)
   temp.set( S::rCounter, REF_COUNTER );                                                    // (15)
   temp.set( S::refToggler, REF_TGLR );                                                     // (16)
@@ -271,22 +271,22 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::auxOutPwr, auxPower );                                                      // (28)
   temp.set( S::auxOutEnable, E::OFF );                                                     // (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
-  temp.set( S::auxFBselect, Feedback ); // untested because I can't                           (30)
+  temp.set( S::auxFBselect, Feedback ); // Untested. Because, I can't.                        (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
-  constexpr auto BscClkDiv = round(PFD / MIN_PFD); //round-off bug
-    static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // non-zero 8 bit value
+  constexpr auto BscClkDiv = round(PFD / MIN_PFD); // Round-off bug, my code.
+    static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
   temp.set( S::bandSelectClkDiv, u8(BscClkDiv) );                                          // (33)
   temp.set( S::rfDivSelect, RF_DIVISOR_TABLE_INDEX );                                      // (34)
   temp.set( S::rfFBselect, !Feedback );  /* EEK! Why the negation?                            (35)
     It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
     // r5
   enum LedMode { low = 0, lockDetect = 1, high = 3 };
-  temp.set( S::led_mode, LedMode::lockDetect ); // ding. winner! end taedium #two of 2        (36)
+  temp.set( S::led_mode, LedMode::lockDetect );       // Ding. Winner! End taedium #two of 2. (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 pll.flush();  wait4lock();  // That pretty blue led indicates phase lock.
   // Now, set phase (at 180º). Can't test this, yet.
   // pll.set( S::phase_adjust,E::ON ).set( S::phase,(MODULUS >> 1) ).flush();
-/* end setup() */ }
+/* End setup() */ }
   // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void {  }  //  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them.
