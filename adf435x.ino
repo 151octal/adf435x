@@ -38,6 +38,7 @@
   //                   (single point)-b.v-w-------------w-5V (I) <- To pll.reg3.3 input •5.5V MAX•
   h.29:(system.pwr.return-GND: Nano.reg5 return)
   h.30:(system.pwr.supply-VIN: Nano.reg5 input)
+  ------------------------------------------------------------------------------------------------
   A second pll would be accommodated with it's {le, ld} on {D9, D8}, respectively. And sharing
   their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from one pll only. This code is a single
   pll version only. •This scheme doesn't preclude the possibilty of supporting two plls•
@@ -57,6 +58,7 @@
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but enough above 3v3 regulator dropout).
   A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only. */
+  ------------------------------------------------------------------------------------------------
   // Commented out, but wired:   D4                                      D11       D13
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
@@ -255,7 +257,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::LnLsModes, nsMode );                                                        // (19)
     // r3
   temp.set( S::clkDivider, CLKDIV );                                                       // (20)
-  enum ClockingMode { dividerOff = 0, fastLock, phResync }; // dunno, still
+  enum ClockingMode { dividerOff = 0, fastLock, phResync }; // I dunno, still.
   temp.set( S::clkDivMode, ClockingMode::dividerOff );                                     // (21)
   temp.set( S::csr, E::ON ); // Cycle Slip reduction                                          (22)
   temp.set( S::chrgCancel, E::OFF );                                                       // (23)
@@ -284,7 +286,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 pll.flush();  wait4lock();  // That pretty blue led indicates phase lock.
-  // Now, set phase (at 180º). I haven't determined how to phase test one pll, YET. It locks ...
+  // Now, set phase (at 180º). I haven't determined how to phase test (one) pll, YET. It locks ...
   // pll.set( S::phase_adjust,E::ON ).set( S::phase,(MODULUS >> 1) ).flush();
 /* End setup() */ }
   // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
