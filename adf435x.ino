@@ -64,26 +64,19 @@ auto tx(void *pByte, int nByte) -> void { // SPI stuff here.
   digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // Data is latched on the rising edge.
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
-    fraction,     integer,          // Register 0 has 2 symbols.
-    modulus,      phase,
-    prescaler,    phase_adjust,     // 4
-    counterReset, cp3state,
-    idle,         pdPolarity,
-    ldp,          ldf,
-    cpIndex,      dblBfr,
-    rCounter,     refToggler,
-    refDoubler,   muxOut,
-    LnLsModes,                      // 13
-    clkDivider,   clkDivMode,
-    csr,          chrgCancel,
-    abp,          bscMode,          // 6
-    rfOutPwr,     rfOutEnable,
-    auxOutPwr,    auxOutEnable,
-    auxFBselect,  muteTillLD,
-    vcoPwrDown,   bandSelectClkDiv,
-    rfDivSelect,  rfFBselect,       // 10
-    led_mode,                       // 1
-  _end
+    fraction,     integer,      modulus,
+    phase,        prescaler,    phase_adjust,     // 4
+    counterReset, cp3state,     idle,
+    pdPolarity,   ldp,          ldf,
+    cpIndex,      dblBfr,       rCounter,
+    refToggler,   refDoubler,   muxOut,
+    LnLsModes,    clkDivider,   clkDivMode,
+    csr,          chrgCancel,   abp,
+    bscMode,      rfOutPwr,     rfOutEnable,
+    auxOutPwr,    auxOutEnable, auxFBselect,
+    muteTillLD,   vcoPwrDown,   bandSelectClkDiv,
+    rfDivSelect,  rfFBselect,   led_mode,
+    _end
   };  static constexpr auto nSymbol{ Symbol::_end };        // For subsequent 'sanity check' only.
 using S = Symbol;
 static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
@@ -93,17 +86,20 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
             tx() in ascending RANK order, unless not dirty. Thus, datasheet register '0' is
             always tx()'d last (and will always need to be tx()'d). See flush() below.
     OFFSET: Zero based position of the field's least significant bit.
-    WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star•
-   { fraction }, { integer }, */
-  {5,  3, 12}, {5, 15, 16}, /* r0                                      // Begin taedium #1 of two.
-   { modulus }, {  phase  },  Et cetera. */
-  {4,  3, 12}, {4, 15, 12}, {4, 27,  1}, {4, 28,  1}, // r1
-  {3,  3,  1}, {3,  4,  1}, {3,  5,  1}, {3,  6,  1}, {3,  7,  1}, {3,  8,  1}, {3,  9,  4},
-  {3, 13,  1}, {3, 14, 10}, {3, 24,  1}, {3, 25,  1}, {3, 26,  3}, {3, 29,  2}, // r2
-  {2,  3, 12}, {2, 15,  2}, {2, 18,  1}, {2, 21,  1}, {2, 22,  1}, {2, 23,  1}, // r3
-  {1,  3,  2}, {1,  5,  1}, {1,  6,  2}, {1,  8,  1}, {1,  9,  1}, {1, 10,  1},
-  {1, 11,  1}, {1, 12,  8}, {1, 20,  3}, {1, 23,  1}, // r4
-  {0, 22,  2} }; // r5                                                   // End taedium #1 of two.
+    WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star• */
+  [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
+  [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phase_adjust] = {4, 28, 1},
+  [S::counterReset] = {3, 3, 1},  [S::cp3state] = {3, 4, 1},      [S::idle] = {3, 5, 1},
+  [S::pdPolarity] = {3, 6, 1},    [S::ldp] = {3, 7, 1},           [S::ldf] = {3, 8, 1},
+  [S::cpIndex] = {3, 9, 4},       [S::dblBfr] = {3, 13, 1},       [S::rCounter] = {3, 14, 10},
+  [S::refToggler] = {3, 24, 1},   [S::refDoubler] = {3, 25, 1},   [S::muxOut] = {3, 26, 3},
+  [S::LnLsModes] = {3, 29, 2},    [S::clkDivider] = {2, 3, 12},   [S::clkDivMode] = {2, 15, 2},
+  [S::csr] = {2, 18, 1},          [S::chrgCancel] = {2, 21, 1},   [S::abp] = {2, 22, 1},
+  [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfOutEnable] = {1, 5, 1},
+  [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
+  [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},
+  [S::bandSelectClkDiv] = {1, 12, 8},                             [S::rfDivSelect] = {1, 20, 3},
+  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
   static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));      // Sane, at last, hahaha!
   // ©2024 kd9fww
 struct SpecifiedOverlay {
@@ -226,7 +222,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
 { /* Enter another scope. */ Overlay temp; /* Setup a temporary, Specified Overlay.
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving. */
     // r0
-  temp.set( S::fraction, FRACTION );                              // Begin taedium #2 of two. (1)
+  temp.set( S::fraction, FRACTION );                                                       // (1)
   temp.set( S::integer, WHOLE );                                                           // (2)
     // r1
   temp.set( S::modulus, MODULUS );                                                         // (3)
@@ -282,7 +278,7 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
     It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
     // r5
   enum LedMode { low = 0, lockDetect = 1, high = 3 };
-  temp.set( S::led_mode, LedMode::lockDetect );       // Ding. Winner! End taedium #two of 2. (36)
+  temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 pll.flush();  wait4lock();  // That pretty blue led indicates phase lock.
   // Now, set phase (at 180º). Can't test this, yet.
