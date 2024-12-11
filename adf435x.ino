@@ -6,7 +6,12 @@
   Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty;
   https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (shifter
   chip + bypass cap) assembly. It's pinout is labeled. I acquired mine, and the Nano, for cheap
-  from the same aforementioned company. */
+  from the same aforementioned company.
+  ------------------------------------------------------------------------------------------------
+  This code is a single pll version only. A second pll would be accommodated with it's {le, ld} on
+  {D9, D8}, respectively. And sharing their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from
+  one pll only. •This scheme doesn't preclude the possibilty of supporting two plls• See below.
+  --------------------------------------------------------------------------------------------- */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
 #include <SPI.h>  /* Circuitry in a nutshell:
   The Shfty is post † soldered to the Nano such that the pins b1..b6 directly connect to the
@@ -39,10 +44,6 @@
   h.29:(system.pwr.return-GND: Nano.reg5 return)
   h.30:(system.pwr.supply-VIN: Nano.reg5 input)
   ------------------------------------------------------------------------------------------------
-  A second pll would be accommodated with it's {le, ld} on {D9, D8}, respectively. And sharing
-  their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from one pll only. This code is a single
-  pll version only. •This scheme doesn't preclude the possibilty of supporting two plls•
-  ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
   • Yes. The LED (on D13) appears to be in contention with the default SPI clock line and is not
@@ -57,8 +58,8 @@
   may cause gross modulation of the Nano 5V which in turn modulates the 3v3 to the extent of the
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but enough above 3v3 regulator dropout).
-  A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only. */
-  ------------------------------------------------------------------------------------------------
+  A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only.
+  --------------------------------------------------------------------------------------------- */
   // Commented out, but wired:   D4                                      D11       D13
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
@@ -165,7 +166,7 @@ constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of C
       [M2] = { 0146.000000e6, 4 },    // (144 - 148) MHz <- call, 2m ham band.
       [M3] = { 0099.999999e6, 5 },    // (88 - 108) MHz <- FM broadcast band in the US.
       [M4] = { 0075.757575e6, 5 },
-      [M5] = { 0066.666666e6, 6 },    // <- VCO divided by 64. See FYI FAUX 'declarations' below.
+      [M5] = { 0066.666666e6, 6 },    // <- VCO divided by 64. See FYI., below.
       [M6] = { 0045.678901e6, 6 },    // (50 - 54) MHz <- 6m ham band.
      [BOT] = { 0034.375000e6, 6 } };  // Lowest possible output frequency.
     //
@@ -176,7 +177,7 @@ constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of C
       a temporary lapse of insight. */
   constexpr auto RF_DIVISOR = RF_DIVISOR_TABLE[ RF_DIVISOR_TABLE_INDEX ]; /* Use ToDo result here
     or otherwise arrive here, determining RF_DIVISOR by a means as yet to be determined */
-  /* FYI FAUX. All permitted freq. ranges. Note: freq. range is limited by VCO, not by REF.
+  /* FYI. All permitted freq. ranges. Note: freq. range is limited by VCO, not by REF.
     constexpr auto mid0{ (MAX_VCO - MIN_VCO) / 2 + MIN_VCO };// 3300 ± 1100 = {  4400, 2200   }
     constexpr auto mid1{ mid0 / RF_DIVISOR_TABLE[1] }; //    1650 ± 550     = {  2200, 1100   }
     constexpr auto mid2{ mid0 / RF_DIVISOR_TABLE[2] }; //     825 ± 275     = {  1100, 550    }
