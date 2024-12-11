@@ -57,14 +57,14 @@
   // Commented out, but wired:   D4                                      D11       D13
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
-auto tx(void *pByte, int nByte) -> void { // SPI stuff here (only)
-  auto p = static_cast<u8*>(pByte) + nByte;       // most significant BYTE first
-  digitalWrite( static_cast<u8>(PIN::LE), 0 );    // predicate condition for data transfer
-  while( nByte-- ) SPI.transfer( *(--p) );        // return value is ignored
-  digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // data is latched on the rising edge
-enum Symbol : u8 {  // human readable register 'field' identifiers
-    // in datasheet order. Enumerant names do NOT mirror datasheet's names exactly
-    fraction,     integer,          // register 0 has 2 symbols
+auto tx(void *pByte, int nByte) -> void { // SPI stuff here.
+  auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
+  digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
+  while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
+  digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // Data is latched on the rising edge.
+enum Symbol : u8 {  // Human readable register 'field' identifiers.
+    // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
+    fraction,     integer,          // Register 0 has 2 symbols.
     modulus,      phase,
     prescaler,    phase_adjust,     // 4
     counterReset, cp3state,
@@ -84,10 +84,10 @@ enum Symbol : u8 {  // human readable register 'field' identifiers
     rfDivSelect,  rfFBselect,       // 10
     led_mode,                       // 1
   _end
-  };  static constexpr auto nSymbol{ Symbol::_end }; // for subsequent 'sanity check' only
+  };  static constexpr auto nSymbol{ Symbol::_end };        // For subsequent 'sanity check' only.
 using S = Symbol;
 static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
-  This entire struct is human deduced via inspection of the datasheet. Unique to the ADF435x.
+  Human deduced via inspection of the datasheet. Unique to the ADF435x.
     N:      Number of (32 bit) "registers": 6
     RANK:   Datasheet Register Number = N - 1 - RANK
             tx() in ascending RANK order, unless not dirty. Thus, datasheet register '0' is
@@ -95,7 +95,7 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
     OFFSET: Zero based position of the field's least significant bit.
     WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star•
    { fraction }, { integer }, */
-  {5,  3, 12}, {5, 15, 16}, /* r0                                      // begin taedium #1 of two
+  {5,  3, 12}, {5, 15, 16}, /* r0                                      // Begin taedium #1 of two.
    { modulus }, {  phase  },  Et cetera. */
   {4,  3, 12}, {4, 15, 12}, {4, 27,  1}, {4, 28,  1}, // r1
   {3,  3,  1}, {3,  4,  1}, {3,  5,  1}, {3,  6,  1}, {3,  7,  1}, {3,  8,  1}, {3,  9,  4},
@@ -103,8 +103,8 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   {2,  3, 12}, {2, 15,  2}, {2, 18,  1}, {2, 21,  1}, {2, 22,  1}, {2, 23,  1}, // r3
   {1,  3,  2}, {1,  5,  1}, {1,  6,  2}, {1,  8,  1}, {1,  9,  1}, {1, 10,  1},
   {1, 11,  1}, {1, 12,  8}, {1, 20,  3}, {1, 23,  1}, // r4
-  {0, 22,  2} }; // r5                                                    // end taedium #1 of two
-  static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));       // sane, at last, hahaha!
+  {0, 22,  2} }; // r5                                                   // End taedium #1 of two.
+  static_assert(nSymbol == (sizeof(ADF435x) / sizeof(ADF435x[0])));      // Sane, at last, hahaha!
   // ©2024 kd9fww
 struct SpecifiedOverlay {
   struct Device {
@@ -149,7 +149,7 @@ Overlay pll;  // Global scope in order to accomodate the setup();loop(); paradig
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
    constexpr auto MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }, // Manifest constants ...
                   MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // ... from the datasheet
-constexpr enum CHANNEL { EVAL, CM23, CM33, CM70, OOK, TEK, M2, M3, M4, M5, M6, BOT } CHAN = M6;
+constexpr enum CHANNEL { EVAL, CM23, CM33, CM70, OOK, TEK, M2, M3, M4, M5, M6, BOT } CHAN = M3;
   // "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
   // until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865.
 constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of CHANNELs.
