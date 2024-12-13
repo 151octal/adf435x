@@ -1,4 +1,4 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 3k memory).
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 5K memory).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
@@ -11,6 +11,8 @@
   This code is a single pll version only. A second pll would be accommodated with it's {le, ld} on
   {D9, D8}, respectively. And sharing their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from
   one pll only. •This scheme doesn't preclude the possibilty of supporting two plls• See below.
+  ------------------------------------------------------------------------------------------------
+  NEW:  Provision for runtime frequency control.
   --------------------------------------------------------------------------------------------- */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
 #include <SPI.h>  /* Circuitry in a nutshell:
@@ -44,6 +46,10 @@
   h.29:(system.pwr.return-GND: Nano.reg5 return)
   h.30:(system.pwr.supply-VIN: Nano.reg5 input)
   ------------------------------------------------------------------------------------------------
+  A second pll would be accommodated with it's {le, ld} on {D9, D8}, respectively. And sharing
+  their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from one pll only. This code is a single
+  pll version only. •This scheme doesn't preclude the possibilty of supporting two plls•
+  ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
   • Yes. The LED (on D13) appears to be in contention with the default SPI clock line and is not
@@ -58,12 +64,11 @@
   may cause gross modulation of the Nano 5V which in turn modulates the 3v3 to the extent of the
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but enough above 3v3 regulator dropout).
-  A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only.
-  --------------------------------------------------------------------------------------------- */
+  A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only. */
   // Commented out, but wired:   D4                                      D11       D13
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
-auto tx(void *pByte, int nByte) -> void { // SPI stuff here.
+auto tx = [](void *pByte, int nByte) { // SPI stuff here.
   auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
   while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
@@ -83,8 +88,7 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     muteTillLD,   vcoPwrDown,   bandSelectClkDiv,
     rfDivSelect,  rfFBselect,   led_mode,
     _end
-  };
-using S = Symbol;
+  };  using S = Symbol;
 static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
   Human deduced via inspection of the datasheet. Unique to the ADF435x.
     N:      Number of (32 bit) "registers": 6
@@ -106,7 +110,8 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},
   [S::bandSelectClkDiv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
-    static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
+  static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
+struct StateRegisters { u16 divis, whole, denom, numer; };
   // ©2024 kd9fww
 struct SpecifiedOverlay {
   struct Device {
@@ -117,6 +122,10 @@ struct SpecifiedOverlay {
       is principled, clear, concise, and unencumbered. Translation: No speed bumps. No barriers. */
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
+  auto set(const StateRegisters& sr) -> decltype(*this) {
+    set( S::fraction,sr.numer ).set( S::integer,sr.whole );
+    set( S::modulus,sr.denom ).set( S::rfDivSelect,sr.divis );
+    return *this;  }
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) { // ADF435x; Magnitude > u16? False. O.K.
     static constexpr u32 MASK[] = {
@@ -139,110 +148,67 @@ struct SpecifiedOverlay {
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) tx( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. */ }
-};  using Overlay = SpecifiedOverlay;
-Overlay pll;  // Global scope in order to accommodate the setup();loop(); paradigm. Sigh.
-  enum Enable { OFF = 0, ON = 1 };  using E = Enable;
+} pll;  using OVL = SpecifiedOverlay;
+enum Enable { OFF = 0, ON = 1 };  using E = Enable;
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // Assertion failure avoidance.
-  constexpr auto  USER_TRIM{ -12 * CONSTRAINT };    // Zero based, via human working in reverse,
+  constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
   constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // from the 'REF' measurement, below.
   constexpr auto  OSC{ 25.000000e6 };           // Nominal reference freq. Yours may be different.
   constexpr auto  REF{ OSC + REF_ERROR };       // Directly measured. YOURS WILL BE DIFFERENT.
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }; // Manifest constants ...
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // ... from the datasheet
-constexpr enum CHANNEL { EVAL, CM23, CM33, CM70, OOK, TEK, M2, M3, M4, M5, M6, BOT } CHAN = M3;
+  constexpr  u16  REF_COUNTER{ 8 };
+    static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );   // Non-zero, 10 bit value.
+  constexpr auto  REF_DBLR{ E::OFF },  REF_TGLR{ E::OFF };  // Turn both ON if OSC is not 50% sq.
+  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
+    static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
+  constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
+using SR = StateRegisters;
+auto log2 = [](double arg) { return log10(arg)/log10(2); };
+struct Cursor {
+  double pfd, step;
+  StateRegisters sr;
+  Cursor(double _pfd, double _stp, SR _sr = {5,0,0,0} ) : pfd{ _pfd }, step{ _stp }, sr{ _sr } {}
+  double freq() { return pfd * (sr.whole + double(sr.numer) / sr.denom) / pow(2,sr.divis); };
+  auto freq(double Hz) -> decltype(sr) {
+    auto desiredFreq = ((MIN_FREQ < Hz) ? ((MAX_FREQ > Hz) ? Hz : MAX_FREQ) : MIN_FREQ);
+    sr.divis = u16(floor( log2(MAX_VCO / desiredFreq) ));
+    auto fractional_N{ desiredFreq / pfd * pow(2, sr.divis) };
+    sr.whole = u16( floor( fractional_N ) );// sr.whole = (22 < sr.whole) ? sr.whole : 22;
+    sr.denom = u16( round( pfd / step ) );
+    sr.numer = u16( round( (fractional_N - sr.whole) * sr.denom) );
+    return sr;  }
+} cursor( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
-constexpr struct { double FREQ; size_t RF_DTAB_INDEX; } TUNE[] = { // Table of CHANNELs.
-/* Start here. Add your member (and assign it), or modify one of these (and assign it).
-  { [enum] = {  frequency, divisor table index } */
-    [EVAL] = { 2500.000000e6, 0 },    // The default freq. setting in the mfr's evaluation program
-    [CM23] = { 1300.000000e6, 1 },    // (1240 - 1300) MHz <- 23cm ham band.
-    [CM33] = { 0910.000000e6, 2 },
-    [CM70] = { 0446.000000e6, 3 },    // (420 - 450) MHz <- call, 70cm ham band.
-     [OOK] = { 0433.920000e6, 3 },    // To get 430MHz, divide the VCO by 8 (= 2 * 2 * 2) <- 3 .
-     [TEK] = { 0430.350000e6, 3 },    // My crystal controlled data radio.
-      [M2] = { 0146.000000e6, 4 },    // (144 - 148) MHz <- call, 2m ham band.
-      [M3] = { 0099.999999e6, 5 },    // (88 - 108) MHz <- FM broadcast band in the US.
-      [M4] = { 0075.757575e6, 5 },
-      [M5] = { 0066.666666e6, 6 },    // <- VCO divided by 64. See FYI., below.
-      [M6] = { 0045.678901e6, 6 },    // (50 - 54) MHz <- 6m ham band.
-     [BOT] = { 0034.375000e6, 6 } };  // Lowest possible output frequency.
-    //
-  constexpr auto STEP{ (CHANNEL::EVAL == CHAN) ? 100e3 : (REF) / 50e3 };
-  constexpr   u8 RF_DIVISOR_TABLE[] = { 1, 2, 4, 8, 16, 32, 64 };
-  constexpr auto RF_DIVISOR_TABLE_INDEX{ TUNE[ CHAN ].RF_DTAB_INDEX };   /* ToDo: calc RF_DIVISOR
-      That is, remove the need for the TUNE table entries' second data member. I'm having
-      a temporary lapse of insight. */
-  constexpr auto RF_DIVISOR = RF_DIVISOR_TABLE[ RF_DIVISOR_TABLE_INDEX ]; /* Use ToDo result here
-    or otherwise arrive here, determining RF_DIVISOR by a means as yet to be determined */
-  /* FYI. All permitted freq. ranges. Note: freq. range is limited by VCO, not by REF.
-    constexpr auto mid0{ (MAX_VCO - MIN_VCO) / 2 + MIN_VCO };// 3300 ± 1100 = {  4400, 2200   }
-    constexpr auto mid1{ mid0 / RF_DIVISOR_TABLE[1] }; //    1650 ± 550     = {  2200, 1100   }
-    constexpr auto mid2{ mid0 / RF_DIVISOR_TABLE[2] }; //     825 ± 275     = {  1100, 550    }
-    constexpr auto mid3{ mid0 / RF_DIVISOR_TABLE[3] }; //   412.5 ± 137.5   = {   550, 275    }
-    constexpr auto mid4{ mid0 / RF_DIVISOR_TABLE[4] }; //  206.25 ± 68.75   = {   275, 137.5  }
-    constexpr auto mid5{ mid0 / RF_DIVISOR_TABLE[5] }; // 103.125 ± 34.375  = { 137.5, 68.75  }
-    constexpr auto mid6{ mid0 / RF_DIVISOR_TABLE[6] }; // 51.5625 ± 17.1875 = { 68.75, 34.375 } */
-  constexpr auto VCO = TUNE[ CHAN ].FREQ * RF_DIVISOR;
-    static_assert((MAX_VCO >= VCO) && (MIN_VCO <= VCO));
-  constexpr auto REF_DBLR{ E::OFF },  REF_TGLR{ E::OFF };
-  constexpr  u16 REF_COUNTER{ (CHANNEL::EVAL == CHAN) ? 1 : 80 };
-    static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );   // Non-zero, 10 bit value.
-  constexpr auto PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
-    static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
-  constexpr auto FRACTIONAL_N = TUNE[ CHAN ].FREQ * RF_DIVISOR / PFD;
-  constexpr auto WHOLE32{ u32( FRACTIONAL_N ) };
-    static_assert( 65536 > WHOLE32 ); // 16 bits.
-  constexpr auto WHOLE{ u16( WHOLE32 ) };
-    static_assert( 22 < WHOLE );  // Minimum value.
-  constexpr auto MOD32 = round(PFD / STEP);
-    static_assert( (1 < MOD32) && (4096 > MOD32) ); // 12 bits, with a minimum value.
-    static_assert((EVAL == CHAN) ? true : (MOD32 % 2) && (MOD32 % 3)); // NOT factorable by {2,3}.
-  constexpr auto MODULUS = u16( MOD32 );
-  constexpr auto CLKDIV32 = 150;  // I (clearly) don't understand this yet.
-    //= round( PFD / MODULUS * 400e-6 /* Seconds */ ); // from datasheets'
-    // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
-  constexpr auto CLKDIV{ (1 > CLKDIV32) ? 1 : u16(CLKDIV32) };
-    static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
-  constexpr auto REMAINS = (FRACTIONAL_N - WHOLE);
-  constexpr auto FRACTION = u16( round( REMAINS * MODULUS ) );
-    static_assert(MODULUS > FRACTION);
-      // Yeah. It's a cute const too but stop staring.
-constexpr auto frEEqCHECK = (WHOLE + double(FRACTION) / MODULUS) * PFD / RF_DIVISOR;
-constexpr auto ERROR = TUNE[ CHAN ].FREQ - frEEqCHECK;  // <- Eyeball this.
-  constexpr auto ABSOLUTE_ERROR = (0 <= ERROR) ? ERROR : -ERROR;
-  static_assert( ABSOLUTE_ERROR < STEP / 2 );  // For lack of something better that is non-zero.
-  // "And away we go!" Gleason.
-auto setup() -> void {  /* Up to this point, computation has been accomplished by the compiler. */
-  SPI.begin();
+auto setup() -> void {
+  SPI.begin();// Serial.begin(1000000L); delay(1000L);
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // rf output enable. Lock is attainable disabled.
     // For OnOffKeying (OOK) start with 'key' off.
-  digitalWrite(static_cast<u8>(PIN::PDR), (CHANNEL::OOK == CHAN) ? E::OFF : E::ON );
+  digitalWrite(static_cast<u8>(PIN::PDR), E::ON );
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See tx(). */
   pinMode(static_cast<u8>(PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
-{ /* Enter another scope. */ Overlay temp; /* Setup a temporary, Specified Overlay.
-  (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving. */
-    // r0
-  temp.set( S::fraction, FRACTION );                                                       // (1)
-  temp.set( S::integer, WHOLE );                                                           // (2)
-    // r1
-  temp.set( S::modulus, MODULUS );                                                         // (3)
-  temp.set( S::phase, 1);  // Adjust phase AFTER loop lock.                                   (4)
+{ /* Enter another scope. */ OVL temp; /* Setup a temporary, Specified Overlay.
+  (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
+  Four set() calls are made for each cursor.freq(double). So, S::_end - 4, remaining. */
+    //temp.set( S::fraction, ); //temp.set( S::integer, );
+    //temp.set( S::modulus, );  //temp.set( S::rfDivSelect, );
+  temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.                                   (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
   enum PRSCL { four5ths = 0, eight9ths };
-  temp.set( S::prescaler, (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths );             // (6)
-    // r2
+      // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths);
+  temp.set( S::prescaler,PRSCL::eight9ths );                                               // (6)
   temp.set( S::counterReset, E::OFF );                                                     // (7)
   temp.set( S::cp3state, E::OFF );                                                         // (8)
   temp.set( S::idle, E::OFF );                                                             // (9)
   enum PDpolarity { negative = 0, positive };
   temp.set( S::pdPolarity, PDpolarity::positive );                                         // (10)
-  enum LDPnS { ten = 0, six };  // Lock Detect Precision nanoSeconds
+  enum LDPnS { ten = 0, six };            // Lock Detect Precision nanoSeconds
   temp.set( S::ldp, LDPnS::ten );                                                          // (11)
   enum LockDetectFunction{ fracN = 0, intN }; 
   temp.set( S::ldf, LockDetectFunction::fracN );                                           // (12)
@@ -252,43 +218,50 @@ auto setup() -> void {  /* Up to this point, computation has been accomplished b
   temp.set( S::refToggler, REF_TGLR );                                                     // (16)
   temp.set( S::refDoubler, REF_DBLR );                                                     // (17)
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
-  temp.set( S::muxOut, MuxOut::HiZ ); // see 'cheat sheet'                                    (18)
+  temp.set( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                (18)
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
-    static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
+    //static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
   temp.set( S::LnLsModes, nsMode );                                                        // (19)
-    // r3
+  constexpr auto CLKDIV32 = 150;          // I don't understand this YET. */
+    //= round( PFD / MODULUS * 400e-6 ); // from datasheets'
+    // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
+  constexpr auto CLKDIV{ u16(CLKDIV32) };
+    static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
   temp.set( S::clkDivider, CLKDIV );                                                       // (20)
-  enum ClockingMode { dividerOff = 0, fastLock, phResync }; // I dunno, still.
+  enum ClockingMode { dividerOff = 0, fastLock, phResync };
   temp.set( S::clkDivMode, ClockingMode::dividerOff );                                     // (21)
-  temp.set( S::csr, E::ON ); // Cycle Slip reduction                                          (22)
+  temp.set( S::csr, E::ON );              // Cycle Slip reduction                             (22)
   temp.set( S::chrgCancel, E::OFF );                                                       // (23)
   enum ABPnS { nS6fracN = 0, nS3intN };   // AntiBacklash Pulse nanoSeconds
   temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
   enum BandSelMd { automatic = 0, programmed };
   temp.set( S::bscMode, (MIN_PFD < PFD) ? BandSelMd::programmed : BandSelMd::automatic );  // (25)
-    // r4
   constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
   temp.set( S::rfOutPwr, outPower );                                                       // (26)
   temp.set( S::rfOutEnable, E::ON );                                                       // (27)
   temp.set( S::auxOutPwr, auxPower );                                                      // (28)
-  temp.set( S::auxOutEnable, E::OFF );                                                     // (29)
+  temp.set( S::auxOutEnable, E::OFF );    // Signal unavailable. Untested, thus.              (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
-  temp.set( S::auxFBselect, Feedback ); // Untested. Because, I can't.                        (30)
+  temp.set( S::auxFBselect, Feedback );                                                    // (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
-  constexpr auto BscClkDiv = round(PFD / MIN_PFD); // Round-off bug, my code.
+  constexpr auto BscClkDiv = ceil(PFD / MIN_PFD);
     static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
   temp.set( S::bandSelectClkDiv, u8(BscClkDiv) );                                          // (33)
-  temp.set( S::rfDivSelect, RF_DIVISOR_TABLE_INDEX );                                      // (34)
-  temp.set( S::rfFBselect, !Feedback );  /* EEK! Why the negation?                            (35)
+  temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
     It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
-    // r5
   enum LedMode { low = 0, lockDetect = 1, high = 3 };
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
-pll.flush();  wait4lock();  // That pretty blue led indicates phase lock.
-  // Now, set phase (at 180º). I haven't determined how to phase test (one) pll, YET. It locks ...
-  // pll.set( S::phase_adjust,E::ON ).set( S::phase,(MODULUS >> 1) ).flush();
 /* End setup() */ }
   // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void {  }  //  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them.
+auto loop() -> void { auto fixed{ 100e6 };//98.7654e6 };//66.6666e6 };
+  pll.set(cursor.freq( fixed )).flush(); wait4lock();
+    //Serial.print(cursor.freq(),0); Serial.print(' '); Serial.println(cursor.freq() - fixed,0);
+  while(1); }    /* { // Alternate (frequency sweep) loop()
+    auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
+    pll.set( cursor.freq(f += df) ).flush(); wait4lock();
+    prd( cursor.freq() ); pld( cursor.freq() - f );
+    if( (34.625e6 <= f) || (MIN_FREQ >= f) ) df = -df;
+    delay(3000L); } */
+    /*  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them. */
