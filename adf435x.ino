@@ -111,8 +111,9 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::bandSelectClkDiv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-struct StateRegisters { u16 divis, whole, denom, numer; };
+struct StateRegisters { u16 divis, whole, denom, numer, propo; };
   // ©2024 kd9fww
+enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 struct SpecifiedOverlay {
   struct Device {
     static constexpr auto N{ 6 };
@@ -122,9 +123,11 @@ struct SpecifiedOverlay {
       is principled, clear, concise, and unencumbered. Translation: No speed bumps. No barriers. */
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
+  auto phaseAdjust(E adj) -> decltype(*this) { set( S::phase_adjust,adj ); return *this; }
   auto set(const StateRegisters& sr) -> decltype(*this) {
     set( S::fraction,sr.numer ).set( S::integer,sr.whole );
-    set( S::modulus,sr.denom ).set( S::rfDivSelect,sr.divis );
+    set( S::modulus,sr.denom ).set( S::phase,sr.propo );
+    set( S::rfDivSelect,sr.divis );
     return *this;  }
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) { // ADF435x; Magnitude > u16? False. O.K.
@@ -149,7 +152,6 @@ struct SpecifiedOverlay {
     for(/* empty */; dev.N != cx; ++cx) tx( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. */ }
 } pll;  using OVL = SpecifiedOverlay;
-enum Enable { OFF = 0, ON = 1 };  using E = Enable;
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // Assertion failure avoidance.
   constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
@@ -170,8 +172,14 @@ auto log2 = [](double arg) { return log10(arg)/log10(2); };
 struct Cursor {
   double pfd, step;
   StateRegisters sr;
-  Cursor(double _pfd, double _stp, SR _sr = {5,0,0,0} ) : pfd{ _pfd }, step{ _stp }, sr{ _sr } {}
-  double freq() { return pfd * (sr.whole + double(sr.numer) / sr.denom) / pow(2,sr.divis); };
+  Cursor(double _pfd, double _stp, SR _sr = {0,0,0,0,1} ) : pfd{ _pfd }, step{ _stp }, sr{ _sr } {}
+  auto phase(double deg) -> decltype(sr) {    // (deg / 360) = (proportion / (denom-1))
+    deg = { (360 < deg) ? (360-deg) : (0 > deg) ? (360 + deg) : deg };
+    auto proportion{ (deg / 360 * (sr.denom - 1)) };
+    sr.propo = u16((proportion > sr.denom - 1) ? sr.denom - 1 : proportion);
+      //Serial.println(sr.propo);
+    return sr;  }
+  double phase() { return sr.propo / double(sr.denom - 1) * 360; }
   auto freq(double Hz) -> decltype(sr) {
     auto desiredFreq = ((MIN_FREQ < Hz) ? ((MAX_FREQ > Hz) ? Hz : MAX_FREQ) : MIN_FREQ);
     sr.divis = u16(floor( log2(MAX_VCO / desiredFreq) ));
@@ -180,11 +188,12 @@ struct Cursor {
     sr.denom = u16( round( pfd / step ) );
     sr.numer = u16( round( (fractional_N - sr.whole) * sr.denom) );
     return sr;  }
+  double freq() { return pfd * (sr.whole + double(sr.numer) / sr.denom) / pow(2,sr.divis); };
 } cursor( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
-  SPI.begin();// Serial.begin(1000000L); delay(1000L);
+  SPI.begin();
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // rf output enable. Lock is attainable disabled.
     // For OnOffKeying (OOK) start with 'key' off.
   digitalWrite(static_cast<u8>(PIN::PDR), E::ON );
@@ -195,10 +204,9 @@ auto setup() -> void {
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ OVL temp; /* Setup a temporary, Specified Overlay.
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
-  Four set() calls are made for each cursor.freq(double). So, S::_end - 4, remaining. */
-    //temp.set( S::fraction, ); //temp.set( S::integer, );
-    //temp.set( S::modulus, );  //temp.set( S::rfDivSelect, );
-  temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.                                   (4)
+    Four set() calls are made for each cursor.freq(double). So, S::_end - 4, remaining. */
+                                          // S::fraction, S::integer, S::modulus      (1) (2) (3)
+  temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.                    (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
   enum PRSCL { four5ths = 0, eight9ths };
       // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths);
@@ -222,8 +230,8 @@ auto setup() -> void {
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
     //static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
   temp.set( S::LnLsModes, nsMode );                                                        // (19)
-  constexpr auto CLKDIV32 = 150;          // I don't understand this YET. */
-    //= round( PFD / MODULUS * 400e-6 ); // from datasheets'
+  constexpr auto CLKDIV32 = 150;          // I don't understand this YET.
+  //= round( PFD / MODULUS * 400e-6 ); // from datasheets'
     // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
     static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
@@ -248,17 +256,24 @@ auto setup() -> void {
   constexpr auto BscClkDiv = ceil(PFD / MIN_PFD);
     static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
   temp.set( S::bandSelectClkDiv, u8(BscClkDiv) );                                          // (33)
+                                          // S::rfDivSelect                                   (34)
   temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
     It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LedMode { low = 0, lockDetect = 1, high = 3 };
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* End setup() */ }
-  // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void { auto fixed{ 100e6 };//98.7654e6 };//66.6666e6 };
-  pll.set(cursor.freq( fixed )).flush(); wait4lock();
-    //Serial.print(cursor.freq(),0); Serial.print(' '); Serial.println(cursor.freq() - fixed,0);
-  while(1); }    /* { // Alternate (frequency sweep) loop()
+  auto pr = [](const u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
+  auto pl = [](const u32& arg, int num = DEC) { Serial.println(arg,num); };
+  auto prd = [](const double& arg, int num = 0) { Serial.print(arg,num); Serial.print(' '); };
+  auto pld = [](const double& arg, int num = 0) { Serial.println(arg,num); };
+    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
+auto loop() -> void { auto fixed{ 55.5555e6 }; // Serial.begin(1000000L); delay(1000L);
+  pll.set(cursor.freq( fixed )).flush(); wait4lock();//prd(cursor.freq()); pld(cursor.freq()-fix);
+      // A means to test phase adj. (with one pll, only) is TBD. It locks ...
+      // pll.phaseAdjust(E::ON).set(cursor.phase(270)).flush();  
+      // prd(cursor.phase(),0); pld(cursor.phase() - 270,0);
+  while(1); }    /* { // Alternate loop() (up-dn frequency sweep)
     auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
     pll.set( cursor.freq(f += df) ).flush(); wait4lock();
     prd( cursor.freq() ); pld( cursor.freq() - f );
