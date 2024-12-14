@@ -63,6 +63,7 @@
   A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only. */
   // Commented out, but wired:   D4                                      D11       D13
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
+auto log2 = [](double arg) { return log10(arg) / log10(2); };
 auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
 auto tx = [](void *pByte, int nByte) { // SPI stuff here.
   auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
@@ -147,7 +148,7 @@ struct SpecifiedOverlay {
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) tx( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. 8-P */ }
-}; using OVL = SpecifiedOverlay;
+}; /* End SpecifiedOverlay */ using OVL = SpecifiedOverlay;
   /* ©2024 kd9fww */
 OVL pll;
   constexpr auto  FLAG{ E::ON };
@@ -160,7 +161,11 @@ OVL pll;
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // Manifest constants ...
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }; // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-auto log2 = [](double arg) { return log10(arg) / log10(2); };
+  constexpr  u16  REF_COUNTER{ 8 };
+  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );   // Non-zero, 10 bit value.
+  constexpr auto  REF_TGLR{ E::OFF }, REF_DBLR{ REF_TGLR }; // Turn ON if OSC isn't a 50% sq. wave
+  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // For completeness.
+  static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
 class Cursor {
   private:
     double pfd, step;
@@ -187,13 +192,7 @@ class Cursor {
     return sp;  }
   auto freq() -> double {
     return pfd * (sp.whole + double(sp.numer) / sp.denom) / pow(2,sp.divis); };
- }; // End Cursor
-  constexpr  u16  REF_COUNTER{ 8 };
-  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );   // Non-zero, 10 bit value.
-  constexpr auto  REF_TGLR{ E::OFF }, REF_DBLR{ REF_TGLR }; // Turn ON if OSC isn't a 50% sq. wave
-  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // For completeness.
-  static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
-Cursor cursor( PFD, OSC / 5e3 );
+}; /* End Cursor */ Cursor cursor( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
