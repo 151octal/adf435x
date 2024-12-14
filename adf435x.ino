@@ -53,15 +53,15 @@
   ------------------------------------------------------------------------------------------------
   The scheme depicted makes it possible to power the system (Nano, Shfty, PLL) from these sources:
   1) USB, 2) The coaxial power connector on the pll assembly, 3) The Nano power pins, as above.
-•SMOKE Don't exceed 5.5V for option 2 SMOKE• *** •Don't use options 2 and 3 at the same time• Ugh.
   A schottky diode (on the Nano) blocks current flowing to the USB host's 5V. Therefor, simul-
   taneous operation with USB and (one) external power supply, is not a (contention) issue.
   Note: avoid supplying the system power at a voltage near the Nano's 5V regultor dropout. Noise
   may cause gross modulation of the Nano 5V which in turn modulates the 3v3 to the extent of the
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but enough above 3v3 regulator dropout).
-  A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only. */
-  // Commented out, but wired:   D4                                      D11       D13
+  A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only.
+•BRICK Don't exceed 5.5V for option 2 •BRICK •Don't use options 2 and 3 at the same time• Ugh. */
+  // Commented out, but wired:   D4                                      D11       D13 
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 auto log2 = [](double arg) { return log10(arg) / log10(2); };
 auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
@@ -82,7 +82,7 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     csr,          chrgCancel,   abp,
     bscMode,      rfOutPwr,     rfOutEnable,
     auxOutPwr,    auxOutEnable, auxFBselect,
-    muteTillLD,   vcoPwrDown,   bandSelectClkDiv,
+    muteTillLD,   vcoPwrDown,   bandSelClkDiv,
     rfDivSelect,  rfFBselect,   led_mode,
     _end
   };  using S = Symbol;
@@ -104,8 +104,7 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::csr] = {2, 18, 1},          [S::chrgCancel] = {2, 21, 1},   [S::abp] = {2, 22, 1},
   [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfOutEnable] = {1, 5, 1},
   [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
-  [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},
-  [S::bandSelectClkDiv] = {1, 12, 8},
+  [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bandSelClkDiv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct StateParameters { u16 divis, whole, denom, numer, propo; };
@@ -258,7 +257,7 @@ auto setup() -> void {
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
   constexpr auto BscClkDiv = ceil(PFD / MIN_PFD);
   static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
-  temp.set( S::bandSelectClkDiv, u8(BscClkDiv) );                                          // (33)
+  temp.set( S::bandSelClkDiv, u8(BscClkDiv) );                                          // (33)
                                           // S::rfDivSelect                                   (34)
   temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
     It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
@@ -268,20 +267,20 @@ pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* End setup() */ }
   auto pr = [](const u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
   auto pl = [](const u32& arg, int num = DEC) { Serial.println(arg,num); };
-  auto prd = [](const double& arg, int num = 0) { Serial.print(arg,num); Serial.print(' '); };
-  auto pld = [](const double& arg, int num = 0) { Serial.println(arg,num); };
+  auto dpr = [](const double& arg, int num = 0) { Serial.print(arg,num); Serial.print(' '); };
+  auto dpl = [](const double& arg, int num = 0) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { auto f0{ 65.4321e6 }; // Serial.begin(1000000L); delay(1000L);
-pll.set(cursor.freq( f0 )).flush(); wait4lock();//prd(cursor.freq()); pld(cursor.freq()-f0);
+pll.set(cursor.freq( f0 )).flush(); wait4lock();//dpr(cursor.freq()); dpl(cursor.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
-  It locks. I think it is correct. Use as follows. */
+  It locks.                   I think it is correct.                      Use it as follows. */
     //  pll.phaseAdjust(E::ON).set(cursor.phase(270)).flush();  
-        //  prd(cursor.phase()); pld(cursor.phase() - 270);
+        //  dpr(cursor.phase()); dpl(cursor.phase() - 270);
     //  pll.phaseAdjust(E::OFF).set(cursor(freq( ... ))) ... .flush(); etcetera.
 while(1); }    /* { // Alternate loop() (up-dn frequency sweep)
     auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
     pll.set( cursor.freq(f += df) ).flush(); wait4lock();
-    prd( cursor.freq() ); pld( cursor.freq() - f );
+    dpr( cursor.freq() ); dpl( cursor.freq() - f );
     if( (34.625e6 <= f) || (MIN_FREQ >= f) ) df = -df;
     delay(3000L); } */
     /*  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them. */
