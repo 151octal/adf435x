@@ -10,9 +10,9 @@
   ------------------------------------------------------------------------------------------------
   This code is a single pll version only. A second pll would be accommodated with it's {le, ld} on
   {D9, D8}, respectively. And sharing their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from
-  one pll only. •This scheme doesn't preclude the possibilty of supporting two plls• See below.
+  one pll only. •This scheme does not preclude the possibilty of supporting two plls• See below.
   ------------------------------------------------------------------------------------------------
-  NEW:  Provision for runtime frequency control.
+  A mechanism for runtime frequency and phase control is provided.
   --------------------------------------------------------------------------------------------- */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
 #include <SPI.h>  /* Circuitry in a nutshell:
@@ -45,10 +45,6 @@
   //                   (single point)-b.v-w-------------w-5V (I) <- To pll.reg3.3 input •5.5V MAX•
   h.29:(system.pwr.return-GND: Nano.reg5 return)
   h.30:(system.pwr.supply-VIN: Nano.reg5 input)
-  ------------------------------------------------------------------------------------------------
-  A second pll would be accommodated with it's {le, ld} on {D9, D8}, respectively. And sharing
-  their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from one pll only. This code is a single
-  pll version only. •This scheme doesn't preclude the possibilty of supporting two plls•
   ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
@@ -111,9 +107,9 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::bandSelectClkDiv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-struct StateRegisters { u16 divis, whole, denom, numer, propo; };
-  // ©2024 kd9fww
+struct StateParameters { u16 divis, whole, denom, numer, propo; };
 enum Enable { OFF = 0, ON = 1 };  using E = Enable;
+  /* ©2024 kd9fww */
 struct SpecifiedOverlay {
   struct Device {
     static constexpr auto N{ 6 };
@@ -124,12 +120,6 @@ struct SpecifiedOverlay {
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
   auto phaseAdjust(E adj) -> decltype(*this) { set( S::phase_adjust,adj ); return *this; }
-  auto set(const StateRegisters& sr) -> decltype(*this) {
-    set( S::fraction,sr.numer ).set( S::integer,sr.whole );
-    set( S::modulus,sr.denom ).set( S::phase,sr.propo );
-    set( S::rfDivSelect,sr.divis );
-    return *this;  }
-      // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) { // ADF435x; Magnitude > u16? False. O.K.
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
@@ -139,6 +129,12 @@ struct SpecifiedOverlay {
     static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
     dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
     return *this; }
+  auto set(const StateParameters& sp) -> decltype(*this) {
+    set( S::fraction,sp.numer ).set( S::integer,sp.whole );
+    set( S::modulus,sp.denom ).set( S::phase,sp.propo );
+    set( S::rfDivSelect,sp.divis );
+    return *this;  }
+      // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
     char cx{ 0 };
     switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
@@ -150,46 +146,54 @@ struct SpecifiedOverlay {
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) tx( &dev.reg[cx], sizeof(dev.reg[cx]) );
-    SPI.endTransaction(); /* Works and plays well with others. */ }
-} pll;  using OVL = SpecifiedOverlay;
+    SPI.endTransaction(); /* Works and plays well with others. 8-P */ }
+}; using OVL = SpecifiedOverlay;
+  /* ©2024 kd9fww */
+OVL pll;
   constexpr auto  FLAG{ E::ON };
-  constexpr auto  CONSTRAINT{ 1e1 };                // Assertion failure avoidance.
+  constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
   constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
   constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // from the 'REF' measurement, below.
-  constexpr auto  OSC{ 25.000000e6 };           // Nominal reference freq. Yours may be different.
-  constexpr auto  REF{ OSC + REF_ERROR };       // Directly measured. YOURS WILL BE DIFFERENT.
+  constexpr auto  OSC{ 25.000000e6 };               // Nominal ref. freq. Yours may be different.
+  constexpr auto  REF{ OSC + REF_ERROR };           // Measured. YOURS WILL BE DIFFERENT.
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-  constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }; // Manifest constants ...
-  constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // ... from the datasheet
-  constexpr  u16  REF_COUNTER{ 8 };
-    static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );   // Non-zero, 10 bit value.
-  constexpr auto  REF_DBLR{ E::OFF },  REF_TGLR{ E::OFF };  // Turn both ON if OSC is not 50% sq.
-  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
-    static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
+  constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // Manifest constants ...
+  constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }; // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-using SR = StateRegisters;
-auto log2 = [](double arg) { return log10(arg)/log10(2); };
-struct Cursor {
-  double pfd, step;
-  StateRegisters sr;
-  Cursor(double _pfd, double _stp, SR _sr = {0,0,0,0,1} ) : pfd{ _pfd }, step{ _stp }, sr{ _sr } {}
-  auto phase(double deg) -> decltype(sr) {    // (deg / 360) = (proportion / (denom-1))
-    deg = { (360 < deg) ? (360-deg) : (0 > deg) ? (360 + deg) : deg };
-    auto proportion{ (deg / 360 * (sr.denom - 1)) };
-    sr.propo = u16((proportion > sr.denom - 1) ? sr.denom - 1 : proportion);
-      //Serial.println(sr.propo);
-    return sr;  }
-  double phase() { return sr.propo / double(sr.denom - 1) * 360; }
-  auto freq(double Hz) -> decltype(sr) {
-    auto desiredFreq = ((MIN_FREQ < Hz) ? ((MAX_FREQ > Hz) ? Hz : MAX_FREQ) : MIN_FREQ);
-    sr.divis = u16(floor( log2(MAX_VCO / desiredFreq) ));
-    auto fractional_N{ desiredFreq / pfd * pow(2, sr.divis) };
-    sr.whole = u16( floor( fractional_N ) );// sr.whole = (22 < sr.whole) ? sr.whole : 22;
-    sr.denom = u16( round( pfd / step ) );
-    sr.numer = u16( round( (fractional_N - sr.whole) * sr.denom) );
-    return sr;  }
-  double freq() { return pfd * (sr.whole + double(sr.numer) / sr.denom) / pow(2,sr.divis); };
-} cursor( PFD, OSC / 5e3 );
+auto log2 = [](double arg) { return log10(arg) / log10(2); };
+class Cursor {
+  private:
+    double pfd, step;
+    StateParameters sp;
+  public:
+  virtual ~Cursor() {}
+  explicit Cursor(double _pfd, double _stp, StateParameters _sp = { 0, 0, 0, 0, 1 } )
+    : pfd{ _pfd }, step{ _stp }, sp{ _sp } {}
+  #undef degrees  // "Good grief, Charlie Brown." C.M. Schulz.
+  auto phase(double degrees) -> decltype(sp) {    // (degrees / 360) = (proportion / (denom-1))
+    degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
+    auto proportion{ (degrees / 360 * (sp.denom - 1)) };
+    sp.propo = u16((proportion > sp.denom - 1) ? sp.denom - 1 : proportion);
+    return sp;  }
+  auto phase() -> double { return sp.propo / double(sp.denom - 1) * 360; }
+  auto freq(double Hertz) -> decltype(sp) {
+    auto desiredFreq = ((MIN_FREQ < Hertz) ? ((MAX_FREQ > Hertz) ? Hertz : MAX_FREQ) : MIN_FREQ);
+    sp.divis = u16( floor( log2(MAX_VCO / desiredFreq) ) );
+    auto fractional_N{ desiredFreq / pfd * pow(2, sp.divis) };
+    sp.whole = u16( floor( fractional_N ) );
+    sp.whole = (22 < sp.whole) ? sp.whole : 22;
+    sp.denom = u16( round( pfd / step ) );
+    sp.numer = u16( round( (fractional_N - sp.whole) * sp.denom) );
+    return sp;  }
+  auto freq() -> double {
+    return pfd * (sp.whole + double(sp.numer) / sp.denom) / pow(2,sp.divis); };
+ }; // End Cursor
+  constexpr  u16  REF_COUNTER{ 8 };
+  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );   // Non-zero, 10 bit value.
+  constexpr auto  REF_TGLR{ E::OFF }, REF_DBLR{ REF_TGLR }; // Turn ON if OSC isn't a 50% sq. wave
+  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // For completeness.
+  static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
+Cursor cursor( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
@@ -206,10 +210,10 @@ auto setup() -> void {
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
     Four set() calls are made for each cursor.freq(double). So, S::_end - 4, remaining. */
                                           // S::fraction, S::integer, S::modulus      (1) (2) (3)
-  temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.                    (4)
+  temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.         REDUNDANT?           (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
   enum PRSCL { four5ths = 0, eight9ths };
-      // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths);
+  // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths);
   temp.set( S::prescaler,PRSCL::eight9ths );                                               // (6)
   temp.set( S::counterReset, E::OFF );                                                     // (7)
   temp.set( S::cp3state, E::OFF );                                                         // (8)
@@ -218,7 +222,7 @@ auto setup() -> void {
   temp.set( S::pdPolarity, PDpolarity::positive );                                         // (10)
   enum LDPnS { ten = 0, six };            // Lock Detect Precision nanoSeconds
   temp.set( S::ldp, LDPnS::ten );                                                          // (11)
-  enum LockDetectFunction{ fracN = 0, intN }; 
+  enum LockDetectFunction{ fracN = 0, intN };
   temp.set( S::ldf, LockDetectFunction::fracN );                                           // (12)
   temp.set( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.       (13)
   temp.set( S::dblBfr, E::ON );                                                            // (14)
@@ -228,13 +232,13 @@ auto setup() -> void {
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
   temp.set( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                (18)
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
-    //static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
+  //static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
   temp.set( S::LnLsModes, nsMode );                                                        // (19)
   constexpr auto CLKDIV32 = 150;          // I don't understand this YET.
   //= round( PFD / MODULUS * 400e-6 ); // from datasheets'
-    // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
+  // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
-    static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
+  static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
   temp.set( S::clkDivider, CLKDIV );                                                       // (20)
   enum ClockingMode { dividerOff = 0, fastLock, phResync };
   temp.set( S::clkDivMode, ClockingMode::dividerOff );                                     // (21)
@@ -254,7 +258,7 @@ auto setup() -> void {
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
   constexpr auto BscClkDiv = ceil(PFD / MIN_PFD);
-    static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
+  static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
   temp.set( S::bandSelectClkDiv, u8(BscClkDiv) );                                          // (33)
                                           // S::rfDivSelect                                   (34)
   temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
@@ -268,12 +272,14 @@ pll = temp;  /* Save and exit scope (discarding temp). */ }
   auto prd = [](const double& arg, int num = 0) { Serial.print(arg,num); Serial.print(' '); };
   auto pld = [](const double& arg, int num = 0) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void { auto fixed{ 55.5555e6 }; // Serial.begin(1000000L); delay(1000L);
-  pll.set(cursor.freq( fixed )).flush(); wait4lock();//prd(cursor.freq()); pld(cursor.freq()-fix);
-      // A means to test phase adj. (with one pll, only) is TBD. It locks ...
-      // pll.phaseAdjust(E::ON).set(cursor.phase(270)).flush();  
-      // prd(cursor.phase(),0); pld(cursor.phase() - 270,0);
-  while(1); }    /* { // Alternate loop() (up-dn frequency sweep)
+auto loop() -> void { auto f0{ 65.4321e6 }; // Serial.begin(1000000L); delay(1000L);
+pll.set(cursor.freq( f0 )).flush(); wait4lock();//prd(cursor.freq()); pld(cursor.freq()-f0);
+  /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
+  It locks. I think it is correct. Use as follows. */
+    //  pll.phaseAdjust(E::ON).set(cursor.phase(270)).flush();  
+        //  prd(cursor.phase()); pld(cursor.phase() - 270);
+    //  pll.phaseAdjust(E::OFF).set(cursor(freq( ... ))) ... .flush(); etcetera.
+while(1); }    /* { // Alternate loop() (up-dn frequency sweep)
     auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
     pll.set( cursor.freq(f += df) ).flush(); wait4lock();
     prd( cursor.freq() ); pld( cursor.freq() - f );
