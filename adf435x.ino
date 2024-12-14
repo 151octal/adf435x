@@ -9,8 +9,8 @@
   from the same aforementioned company.
   ------------------------------------------------------------------------------------------------
   This code is a single pll version only. A second pll would be accommodated with it's {le, ld} on
-  {D9, D8}, respectively. And sharing their {5v, clk, dat, pdr, GND} signals. With {3v3, mux} from
-  one pll only. •This scheme does not preclude the possibilty of supporting two plls• See below.
+  {D9, D8}, respectively. And sharing their {5v, clk, dat, pdr, GND} signals. With {REF, 3v3, mux}
+  from one pll only. •This scheme does not preclude the possibilty of supporting two plls• See below.
   ------------------------------------------------------------------------------------------------
   A mechanism for runtime frequency and phase control is provided.
   --------------------------------------------------------------------------------------------- */
@@ -119,7 +119,8 @@ struct SpecifiedOverlay {
       is principled, clear, concise, and unencumbered. Translation: No speed bumps. No barriers. */
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
-  auto phaseAdjust(E adj) -> decltype(*this) { set( S::phase_adjust,adj ); return *this; }
+  auto phaseAdjust(E enable) -> decltype(*this) { set( S::phase_adjust,enable ); return *this; }
+      // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto set( S symbol,u16 value ) -> decltype(*this) { // ADF435x; Magnitude > u16? False. O.K.
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
@@ -134,7 +135,6 @@ struct SpecifiedOverlay {
     set( S::modulus,sp.denom ).set( S::phase,sp.propo );
     set( S::rfDivSelect,sp.divis );
     return *this;  }
-      // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
   auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
     char cx{ 0 };
     switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
@@ -152,7 +152,7 @@ struct SpecifiedOverlay {
 OVL pll;
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
-  constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
+  constexpr auto  USER_TRIM{ -14 * CONSTRAINT };    // Zero based, via human working in reverse,
   constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // from the 'REF' measurement, below.
   constexpr auto  OSC{ 25.000000e6 };               // Nominal ref. freq. Yours may be different.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured. YOURS WILL BE DIFFERENT.
@@ -162,19 +162,18 @@ OVL pll;
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
   constexpr  u16  REF_COUNTER{ 8 };
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );   // Non-zero, 10 bit value.
-  constexpr auto  REF_TGLR{ E::OFF }, REF_DBLR{ REF_TGLR }; // Turn ON if OSC isn't a 50% sq. wave
+  constexpr auto  REF_TGLR{ E::OFF }, REF_DBLR{ REF_TGLR };     // OFF if OSC IS a 50% square wave
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // For completeness.
   static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
 class Cursor {
   private:
     double pfd, step;
-    StateParameters sp;
+    StateParameters sp = { 0, 0, 0, 0, 1 };
   public:
   virtual ~Cursor() {}
-  explicit Cursor(double _pfd, double _stp, StateParameters _sp = { 0, 0, 0, 0, 1 } )
-    : pfd{ _pfd }, step{ _stp }, sp{ _sp } {}
-  #undef degrees  // "Good grief, Charlie Brown." C.M. Schulz.
-  auto phase(double degrees) -> decltype(sp) {    // (degrees / 360) = (proportion / (denom-1))
+  explicit Cursor(double _pfd, double _stp ) : pfd{ _pfd }, step{ _stp } {}
+  #undef degrees                                    // "Good grief, Charlie Brown." C.M. Schulz.
+  auto phase(double degrees) -> decltype(sp) {      // (degrees / 360) = (proportion / (denom-1))
     degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
     auto proportion{ (degrees / 360 * (sp.denom - 1)) };
     sp.propo = u16((proportion > sp.denom - 1) ? sp.denom - 1 : proportion);
@@ -265,22 +264,21 @@ auto setup() -> void {
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* End setup() */ }
-  auto pr = [](const u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
-  auto pl = [](const u32& arg, int num = DEC) { Serial.println(arg,num); };
-  auto dpr = [](const double& arg, int num = 0) { Serial.print(arg,num); Serial.print(' '); };
-  auto dpl = [](const double& arg, int num = 0) { Serial.println(arg,num); };
+  void pr(   const u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
+  void pr(const double& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
+  void pl(   const u32& arg, int num = DEC) { Serial.println(arg,num); };
+  void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { auto f0{ 65.4321e6 }; // Serial.begin(1000000L); delay(1000L);
-pll.set(cursor.freq( f0 )).flush(); wait4lock();//dpr(cursor.freq()); dpl(cursor.freq()-f0);
+pll.set(cursor.freq( f0 )).flush(); wait4lock(); pr(cursor.freq()); pl(cursor.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
-  It locks.                   I think it is correct.                      Use it as follows. */
+      It locks.                   I think it is correct.                  Use it as follows. */
     //  pll.phaseAdjust(E::ON).set(cursor.phase(270)).flush();  
-        //  dpr(cursor.phase()); dpl(cursor.phase() - 270);
-    //  pll.phaseAdjust(E::OFF).set(cursor(freq( ... ))) ... .flush(); etcetera.
+        //  pr(cursor.phase()); pl(cursor.phase()-270);
 while(1); }    /* { // Alternate loop() (up-dn frequency sweep)
     auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
     pll.set( cursor.freq(f += df) ).flush(); wait4lock();
-    dpr( cursor.freq() ); dpl( cursor.freq() - f );
+    pr( cursor.freq() ); pl( cursor.freq() - f );
     if( (34.625e6 <= f) || (MIN_FREQ >= f) ) df = -df;
     delay(3000L); } */
     /*  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them. */
