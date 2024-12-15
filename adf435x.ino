@@ -116,7 +116,9 @@ struct SpecifiedOverlay {
     static constexpr auto N{ 6 };
     using RegArray = std::array<u32, N>; /*
       With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. 
-      This mechanism adheres to the principle of 'Resource Aquisition Is Initialization'. */
+      This mechanism adheres to the principle of 'Resource Aquisition Is Initialization', via
+      container class' construction with an (embedded, fixed) initializer-list. See:
+      "The C++ Programming Language". Fourth Edition. Stroustrup. 2013. §3.2.1.2, §3.2.1.3, p64 */
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
   auto phaseAdjust(E enable) -> decltype(*this) { set( S::phase_adjust,enable ); return *this; }
@@ -205,9 +207,9 @@ auto setup() -> void {
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ SpecifiedOverlay temp; /* Setup a temporary, Specified Overlay.
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
-    Four set() calls are made for each control.freq(double). So, S::_end - 4, remaining. */
-                                          // S::fraction, S::integer, S::modulus      (1) (2) (3)
-  temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.         REDUNDANT?           (4)
+  Four set() calls are made for each control.freq(double). So, S::_end - 4, remaining. */
+  //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
+  temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.         REDUNDANT? (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
   enum PRSCL { four5ths = 0, eight9ths };
   // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths);
