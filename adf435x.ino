@@ -64,16 +64,16 @@
 •BRICK• Don't exceed 5.5V for option 2 •BRICK• •Don't use options 2 AND 3• Man make fire. Ugh. */
   // Commented out, but wired:   D4                                      D11       D13 
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
-using DBL = double;
-const auto log2 = [](DBL arg) { return log10(arg) / log10(2); };
-const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
-enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-const auto rfHardEnable = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
-const auto txSPI = [](void *pByte, int nByte) {
-  auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
-  digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
-  while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
-  digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // Data is latched on the rising edge.
+  using DBL = double;
+  const auto log2 = [](DBL arg) { return log10(arg) / log10(2); };
+  const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
+  enum Enable { OFF = 0, ON = 1 };  using E = Enable;
+  const auto rfHardEnable = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
+  const auto txSPI = [](void *pByte, int nByte) {
+    auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
+    digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
+    while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
+    digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // Data is latched on the rising edge.
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -147,10 +147,10 @@ struct SpecifiedOverlay {
       case S::modulus:      if(val != mem.denom) return raw( sym,mem.denom = val ); break;
       case S::rfDivSelect:  if(val != mem.divis) return raw( sym,mem.divis = val ); break; 
      }  }
-  auto set( const StateParameters& sp ) -> decltype(*this) {
-    set( S::fraction,sp.numer ).set( S::integer,sp.whole );
-    set( S::modulus,sp.denom ).set( S::phase,sp.propo );
-    set( S::rfDivSelect,sp.divis );
+  auto set( const StateParameters& loci ) -> decltype(*this) {
+    set( S::fraction,loci.numer ).set( S::integer,loci.whole );
+    set( S::modulus,loci.denom ).set( S::phase,loci.propo );
+    set( S::rfDivSelect,loci.divis );
     return *this;  }
   auto flush() -> void {
     char cx{ 0 };
@@ -164,12 +164,12 @@ struct SpecifiedOverlay {
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
-    SPI.endTransaction(); }
-} pll; /* End struct SpecifiedOverlay */
-  /* ©2024 kd9fww */
-const Specification* const SpecifiedOverlay::spec{ ADF435x };
-constexpr StateParameters initialStateParameters{ 0, 0, 0, 0, 1 };
-StateParameters SpecifiedOverlay::mem{ initialStateParameters };
+    SPI.endTransaction(); } };
+    /* ©2024 kd9fww */
+SpecifiedOverlay pll;
+  const Specification* const SpecifiedOverlay::spec{ ADF435x };
+  constexpr StateParameters initialStateParameters{ 0, 0, 0, 0, 1 };
+  StateParameters SpecifiedOverlay::mem{ initialStateParameters };
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
   constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
@@ -181,35 +181,35 @@ StateParameters SpecifiedOverlay::mem{ initialStateParameters };
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }; // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
   constexpr  u16  REF_COUNTER{ 8 };
-  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );   // Non-zero, 10 bit value.
-  constexpr auto  REF_TGLR{ E::OFF }, REF_DBLR{ REF_TGLR };     // OFF if OSC IS a 50% square wave
-  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // For completeness.
+  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
+  constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // If OSC IS a 50% square wave: OFF
+  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // Completeness sake
   static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
 class Marker {
   private:
     DBL pfd, step;
-    StateParameters sp{ initialStateParameters };
+    StateParameters loci{ initialStateParameters };
   public:
   virtual ~Marker() {}
   explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, step{_step} {}
   #undef degrees                            // "Good grief, Charlie Brown." C.M. Schulz.
-  auto phase(DBL degrees) -> decltype(sp) { // (degrees / 360) = (propo / (denom-1))
+  auto phase(DBL degrees) -> decltype(loci) { // (degrees / 360) = (propo / (denom-1))
     degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
-    auto proportion{ (degrees / 360 * (sp.denom - 1)) };
-    sp.propo = u16( (proportion > sp.denom - 1) ? sp.denom - 1 : proportion );
-    return sp;  }
-  auto phase() -> DBL { return sp.propo / DBL(sp.denom - 1) * 360; }
-  auto freq(DBL Hertz) -> decltype(sp) {
+    auto proportion{ (degrees / 360 * (loci.denom - 1)) };
+    loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
+    return loci;  }
+  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; }
+  auto freq(DBL Hertz) -> decltype(loci) {
     Hertz = ((MIN_FREQ < Hertz) ? ((MAX_FREQ > Hertz) ? Hertz : MAX_FREQ) : MIN_FREQ);
-    sp.divis = u16( floor( log2(MAX_VCO / Hertz) ) );
-    auto fractional_N{ Hertz / pfd * pow(2, sp.divis) };
-    sp.whole = u16( floor( fractional_N ) );
-    sp.whole = (22 < sp.whole) ? sp.whole : 22;
-    sp.denom = u16( round( pfd / step ) );
-    sp.numer = u16( round( (fractional_N - sp.whole) * sp.denom) );
-    return sp;  }
-  auto freq() -> DBL { return pfd * (sp.whole + DBL(sp.numer) / sp.denom) / pow(2,sp.divis); };
-}; /* End class Marker */ Marker m( PFD, OSC / 5e3 );
+    loci.divis = u16( floor( log2(MAX_VCO / Hertz) ) );
+    auto fractional_N{ Hertz / pfd * pow(2, loci.divis) };
+    loci.whole = u16( floor( fractional_N ) );
+    loci.whole = (22 < loci.whole) ? loci.whole : 22;
+    loci.denom = u16( round( pfd / step ) );
+    loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
+    return loci;  }
+  auto freq() -> DBL { return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis); }; };
+Marker m( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
@@ -221,14 +221,13 @@ auto setup() -> void {
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
   pinMode(static_cast<u8>(PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
-{ /* Enter another scope. */ SpecifiedOverlay temp; /* Setup a temporary, Specified Overlay.
-  (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
-  Four set() calls are made for each m.freq(DBL). So, S::_end - 4, remaining. */
+{ /* Enter another scope. */ SpecifiedOverlay temp; /*
+  (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving. Four
+  set() calls are made for each m.freq(DBL). So, S::_end - 4, remaining. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
-  temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.         REDUNDANT? (4)
+  temp.set( S::phase, 1);                            // Adjust phase AFTER loop lock.         (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
-  enum PRSCL { four5ths = 0, eight9ths };
-  // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths);
+  enum PRSCL { four5ths = 0, eight9ths }; // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths)
   temp.set( S::prescaler,PRSCL::eight9ths );                                               // (6)
   temp.set( S::counterReset, E::OFF );                                                     // (7)
   temp.set( S::cp3state, E::OFF );                                                         // (8)
@@ -249,7 +248,7 @@ auto setup() -> void {
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
   //static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
   temp.set( S::LnLsModes, nsMode );                                                        // (19)
-  constexpr auto CLKDIV32 = 150;          // I don't understand this YET.
+  constexpr auto CLKDIV32 = 150;          // I don't understand this, YET.
   //= round( PFD / MODULUS * 400e-6 ); // from datasheets'
   // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
@@ -275,9 +274,9 @@ auto setup() -> void {
   constexpr auto BscClkDiv = ceil(PFD / MIN_PFD);
   static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
   temp.set( S::bandSelClkDiv, u8(BscClkDiv) );                                             // (33)
-                                          // S::rfDivSelect                                   (34)
+  // S::rfDivSelect                                                                           (34)
   temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
-    It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
+  It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LedMode { low = 0, lockDetect = 1, high = 3 };
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
@@ -288,7 +287,7 @@ pll = temp;  /* Save and exit scope (discarding temp). */ }
   void pl(const DBL& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { DBL f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
-pll.set(m.freq( f0 )).flush(); wait4lock();// pr(m.freq()); pl(m.freq()-f0);
+  pll.set(m.freq( f0 )).flush(); wait4lock();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
     //  pll.phaseAdjust(E::ON).set(m.phase(270)).flush();  
