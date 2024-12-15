@@ -1,4 +1,4 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 6K memory).
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 7K memory).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
@@ -111,6 +111,8 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct StateParameters { u16 divis, whole, denom, numer, propo; };
+constexpr StateParameters EmptyStateParameters{ 0,0,0,0,1 };
+static StateParameters keep{ EmptyStateParameters };
   /* ©2024 kd9fww */
 struct SpecifiedOverlay {
   struct Device {
@@ -120,11 +122,20 @@ struct SpecifiedOverlay {
       This mechanism adheres to the principle of 'Resource Aquisition Is Initialization' (RAII),
       with container class' construction using an (embedded, fixed) initializer-list. See:
       "The C++ Programming Language". Fourth Edition. Stroustrup. 2013. §3.2.1.2, §3.2.1.3, p64 */
-  u8 durty; SPISettings settings; RegArray reg; } dev =
-  { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
-  auto phaseAdjust(E enable) -> decltype(*this) { set( S::phase_adjust,enable ); return *this; }
+  u8 durty; SPISettings settings;RegArray reg; } dev =
+  { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
+  auto chkSet( const S& sym,const u16& val ) -> decltype(*this) {
+    switch(sym) {
+      default: return *this;
+      case S::fraction:     if(val != keep.numer) return set( sym,keep.numer = val ); break;
+      case S::integer:      if(val != keep.whole) return set( sym,keep.whole = val ); break;
+      case S::phase:        if(val != keep.propo) return set( sym,keep.propo = val ); break;
+      case S::modulus:      if(val != keep.denom) return set( sym,keep.denom = val ); break;
+      case S::rfDivSelect:  if(val != keep.divis) return set( sym,keep.divis = val ); break; 
+     }  }
+  auto phaseAdjust( const E& e ) -> decltype(*this) { set( S::phase_adjust,e ); return *this; }
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
-  auto set( S symbol,u16 value ) -> decltype(*this) { // ADF435x; Magnitude > u16? False. O.K.
+  auto set( const S& symbol,const u16& value ) -> decltype(*this) {
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
     auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
@@ -133,10 +144,10 @@ struct SpecifiedOverlay {
     static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
     dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
     return *this; }
-  auto set(const StateParameters& sp) -> decltype(*this) {
-    set( S::fraction,sp.numer ).set( S::integer,sp.whole );
-    set( S::modulus,sp.denom ).set( S::phase,sp.propo );
-    set( S::rfDivSelect,sp.divis );
+  auto set( const StateParameters& sp ) -> decltype(*this) {
+    chkSet( S::fraction,sp.numer ).chkSet( S::integer,sp.whole );
+    chkSet( S::modulus,sp.denom ).chkSet( S::phase,sp.propo );
+    chkSet( S::rfDivSelect,sp.divis );
     return *this;  }
   auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
     char cx{ 0 };
@@ -172,7 +183,7 @@ SpecifiedOverlay pll;
 class Marker {
   private:
     double pfd, step;
-    StateParameters sp = { 0, 0, 0, 0, 1 };
+    StateParameters sp{ EmptyStateParameters };
   public:
   virtual ~Marker() {}
   explicit Marker(double _pfd, double _stp ) : pfd{ _pfd }, step{ _stp } {}
@@ -194,7 +205,7 @@ class Marker {
     return sp;  }
   using D = double;
   auto freq() -> D { return pfd * (sp.whole + D(sp.numer) / sp.denom) / pow(2,sp.divis); };
-}; /* End Marker */ Marker control( PFD, OSC / 5e3 );
+}; /* End Marker */ Marker m( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
@@ -208,7 +219,7 @@ auto setup() -> void {
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ SpecifiedOverlay temp; /* Setup a temporary, Specified Overlay.
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
-  Four set() calls are made for each control.freq(double). So, S::_end - 4, remaining. */
+  Four set() calls are made for each m.freq(double). So, S::_end - 4, remaining. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.         REDUNDANT? (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
@@ -273,15 +284,15 @@ pll = temp;  /* Save and exit scope (discarding temp). */ }
   void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { double f0{ 65.4321e6 }; // Serial.begin(1000000L); delay(1000L);
-pll.set(control.freq( f0 )).flush(); wait4lock();// pr(control.freq()); pl(control.freq()-f0);
+pll.set(m.freq( f0 )).flush(); wait4lock();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
-    //  pll.phaseAdjust(E::ON).set(control.phase(270)).flush();  
-        //  pr(control.phase()); pl(control.phase()-270);
+    //  pll.phaseAdjust(E::ON).set(m.phase(270)).flush();  
+        //  pr(m.phase()); pl(m.phase()-270);
 while(1); }    /* { // Alternate loop(): (up-dn frequency sweep)
     auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
-    pll.set( control.freq(f += df) ).flush(); wait4lock();
-    pr( control.freq() ); pl( control.freq() - f );
+    pll.set( m.freq(f += df) ).flush(); wait4lock();
+    pr( m.freq() ); pl( m.freq() - f );
     if( (34.625e6 <= f) || (MIN_FREQ >= f) ) df = -df;
     delay(3000L); } */
     /*  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them. */
