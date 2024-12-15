@@ -1,4 +1,4 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 7K memory).
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 7K mem).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
@@ -64,7 +64,8 @@
 •BRICK• Don't exceed 5.5V for option 2 •BRICK• •Don't use options 2 AND 3• Man make fire. Ugh. */
   // Commented out, but wired:   D4                                      D11       D13 
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
-const auto log2 = [](double arg) { return log10(arg) / log10(2); };
+using DBL = double;
+const auto log2 = [](DBL arg) { return log10(arg) / log10(2); };
 const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
 enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 const auto rfHardEnable = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
@@ -96,8 +97,7 @@ struct Specification { const u8 RANK, OFFSET, WIDTH; }; /*
             always txSPI()'d last (and will always need to be txSPI()'d). See flush() below.
     OFFSET: Zero based position of the field's least significant bit.
     WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star• */
-constexpr Specification ADF435x[] = { /*
-  Human deduced via inspection of the datasheet. Unique to the ADF435x. */
+constexpr Specification ADF435x[] = { /* Human deduced via inspection. */
   [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
   [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phase_adjust] = {4, 28, 1},
   [S::counterReset] = {3, 3, 1},  [S::cp3state] = {3, 4, 1},      [S::idle] = {3, 5, 1},
@@ -109,13 +109,13 @@ constexpr Specification ADF435x[] = { /*
   [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfSoftEnable] = {1, 5, 1},
   [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bandSelClkDiv] = {1, 12, 8},
-  [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
+  [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct StateParameters { u16 divis, whole, denom, numer, propo; };
   /* ©2024 kd9fww */
 struct SpecifiedOverlay {
-  static const Specification* spec;
-  static StateParameters memory;
+  static const Specification* const spec;
+  static StateParameters mem;
   struct Device {
     static constexpr auto N{ 6 };
     using RegArray = std::array<u32, N>; /*
@@ -141,18 +141,18 @@ struct SpecifiedOverlay {
   auto set( const S& sym,const u16& val ) -> decltype(*this) {  // wrapper for raw()
     switch(sym) {
       default: return raw( sym,val );
-      case S::fraction:     if(val != memory.numer) return raw( sym,memory.numer = val ); break;
-      case S::integer:      if(val != memory.whole) return raw( sym,memory.whole = val ); break;
-      case S::phase:        if(val != memory.propo) return raw( sym,memory.propo = val ); break;
-      case S::modulus:      if(val != memory.denom) return raw( sym,memory.denom = val ); break;
-      case S::rfDivSelect:  if(val != memory.divis) return raw( sym,memory.divis = val ); break; 
+      case S::fraction:     if(val != mem.numer) return raw( sym,mem.numer = val ); break;
+      case S::integer:      if(val != mem.whole) return raw( sym,mem.whole = val ); break;
+      case S::phase:        if(val != mem.propo) return raw( sym,mem.propo = val ); break;
+      case S::modulus:      if(val != mem.denom) return raw( sym,mem.denom = val ); break;
+      case S::rfDivSelect:  if(val != mem.divis) return raw( sym,mem.divis = val ); break; 
      }  }
   auto set( const StateParameters& sp ) -> decltype(*this) {
     set( S::fraction,sp.numer ).set( S::integer,sp.whole );
     set( S::modulus,sp.denom ).set( S::phase,sp.propo );
     set( S::rfDivSelect,sp.divis );
     return *this;  }
-  auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
+  auto flush() -> void {
     char cx{ 0 };
     switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
       default: break;                   /* Otherwise: say they're all dirty. */
@@ -164,13 +164,12 @@ struct SpecifiedOverlay {
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
-    SPI.endTransaction(); /* Works and plays well with others. 8-P */ }
-}; /* End struct SpecifiedOverlay */
-const Specification* SpecifiedOverlay::spec{ ADF435x };
-constexpr StateParameters initialStateParameters{ 0, 0, 0, 0, 1 };
-StateParameters SpecifiedOverlay::memory{ initialStateParameters };
+    SPI.endTransaction(); }
+} pll; /* End struct SpecifiedOverlay */
   /* ©2024 kd9fww */
-SpecifiedOverlay pll;
+const Specification* const SpecifiedOverlay::spec{ ADF435x };
+constexpr StateParameters initialStateParameters{ 0, 0, 0, 0, 1 };
+StateParameters SpecifiedOverlay::mem{ initialStateParameters };
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
   constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
@@ -188,19 +187,19 @@ SpecifiedOverlay pll;
   static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
 class Marker {
   private:
-    double pfd, step;
+    DBL pfd, step;
     StateParameters sp{ initialStateParameters };
   public:
   virtual ~Marker() {}
-  explicit Marker(const double& _pfd, const double& _step) : pfd{_pfd}, step{_step} {}
-  #undef degrees                                // "Good grief, Charlie Brown." C.M. Schulz.
-  auto phase(double degrees) -> decltype(sp) {  // (degrees / 360) = (propo / (denom-1))
+  explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, step{_step} {}
+  #undef degrees                            // "Good grief, Charlie Brown." C.M. Schulz.
+  auto phase(DBL degrees) -> decltype(sp) { // (degrees / 360) = (propo / (denom-1))
     degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
     auto proportion{ (degrees / 360 * (sp.denom - 1)) };
     sp.propo = u16( (proportion > sp.denom - 1) ? sp.denom - 1 : proportion );
     return sp;  }
-  auto phase() -> double { return sp.propo / double(sp.denom - 1) * 360; }
-  auto freq(double Hertz) -> decltype(sp) {
+  auto phase() -> DBL { return sp.propo / DBL(sp.denom - 1) * 360; }
+  auto freq(DBL Hertz) -> decltype(sp) {
     Hertz = ((MIN_FREQ < Hertz) ? ((MAX_FREQ > Hertz) ? Hertz : MAX_FREQ) : MIN_FREQ);
     sp.divis = u16( floor( log2(MAX_VCO / Hertz) ) );
     auto fractional_N{ Hertz / pfd * pow(2, sp.divis) };
@@ -209,7 +208,6 @@ class Marker {
     sp.denom = u16( round( pfd / step ) );
     sp.numer = u16( round( (fractional_N - sp.whole) * sp.denom) );
     return sp;  }
-  using DBL = double;
   auto freq() -> DBL { return pfd * (sp.whole + DBL(sp.numer) / sp.denom) / pow(2,sp.divis); };
 }; /* End class Marker */ Marker m( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
@@ -225,7 +223,7 @@ auto setup() -> void {
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ SpecifiedOverlay temp; /* Setup a temporary, Specified Overlay.
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
-  Four set() calls are made for each m.freq(double). So, S::_end - 4, remaining. */
+  Four set() calls are made for each m.freq(DBL). So, S::_end - 4, remaining. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.         REDUNDANT? (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
@@ -284,12 +282,12 @@ auto setup() -> void {
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* End setup() */ }
-  void pr(   const u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
-  void pr(const double& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
-  void pl(   const u32& arg, int num = DEC) { Serial.println(arg,num); };
-  void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
+  void pr(const u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
+  void pr(const DBL& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
+  void pl(const u32& arg, int num = DEC) { Serial.println(arg,num); };
+  void pl(const DBL& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void { double f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
+auto loop() -> void { DBL f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
 pll.set(m.freq( f0 )).flush(); wait4lock();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
