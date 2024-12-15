@@ -1,4 +1,4 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 5K memory).
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 6K memory).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
@@ -48,8 +48,8 @@
   ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
-  • Yes. The LED (on D13) appears to be in contention with the default SPI clock line and is not
-  easily open circuited. Look, 'Let It Be.' and 'Fughet about it.', OK? SPI will work regardless.
+  • The LED (on D13) appears to be in contention with the default SPI clock line and is not easily
+  open circuited. Look, 'Let It Be.' and 'Fughet about it.', OK? SPI will work regardless.
   ------------------------------------------------------------------------------------------------
   The scheme depicted makes it possible to power the system (Nano, Shfty, PLL) from these sources:
   1) USB, 2) The coaxial power connector on the pll assembly, 3) The Nano power pins, as above.
@@ -60,12 +60,14 @@
   3v3 regulator's line rejection. This effect is not present with the supply sufficiently above
   the 5V input dropout (or below the 5V input dropout but enough above 3v3 regulator dropout).
   A USB host can do 5V @ 500 mA. For debug, power from: USB, only; Benchmark: opt 3, >6V, only.
-•BRICK Don't exceed 5.5V for option 2 •BRICK •Don't use options 2 and 3 at the same time• Ugh. */
+•BRICK• Don't exceed 5.5V for option 2 •BRICK• •Don't use options 2 AND 3• Man make fire. Ugh. */
   // Commented out, but wired:   D4                                      D11       D13 
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 auto log2 = [](double arg) { return log10(arg) / log10(2); };
-auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
-auto tx = [](void *pByte, int nByte) { // SPI stuff here.
+const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
+enum Enable { OFF = 0, ON = 1 };  using E = Enable;
+const auto key = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
+const auto tx = [](void *pByte, int nByte) { // SPI
   auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
   while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
@@ -108,15 +110,13 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct StateParameters { u16 divis, whole, denom, numer, propo; };
-enum Enable { OFF = 0, ON = 1 };  using E = Enable;
   /* ©2024 kd9fww */
 struct SpecifiedOverlay {
   struct Device {
     static constexpr auto N{ 6 };
     using RegArray = std::array<u32, N>; /*
       With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. 
-      This mechanism adheres to the principle of 'Resource Aquisition Is Initialization'. As such,
-      is principled, clear, concise, and unencumbered. Translation: No speed bumps. No barriers. */
+      This mechanism adheres to the principle of 'Resource Aquisition Is Initialization'. */
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
   auto phaseAdjust(E enable) -> decltype(*this) { set( S::phase_adjust,enable ); return *this; }
@@ -152,7 +152,7 @@ struct SpecifiedOverlay {
 OVL pll;
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
-  constexpr auto  USER_TRIM{ -14 * CONSTRAINT };    // Zero based, via human working in reverse,
+  constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
   constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // from the 'REF' measurement, below.
   constexpr auto  OSC{ 25.000000e6 };               // Nominal ref. freq. Yours may be different.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured. YOURS WILL BE DIFFERENT.
@@ -173,31 +173,31 @@ class Cursor {
   virtual ~Cursor() {}
   explicit Cursor(double _pfd, double _stp ) : pfd{ _pfd }, step{ _stp } {}
   #undef degrees                                    // "Good grief, Charlie Brown." C.M. Schulz.
-  auto phase(double degrees) -> decltype(sp) {      // (degrees / 360) = (proportion / (denom-1))
+  auto phase(double degrees) -> decltype(sp) {      // (degrees / 360) = (propo / (denom-1))
     degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
     auto proportion{ (degrees / 360 * (sp.denom - 1)) };
-    sp.propo = u16((proportion > sp.denom - 1) ? sp.denom - 1 : proportion);
+    sp.propo = u16( (proportion > sp.denom - 1) ? sp.denom - 1 : proportion );
     return sp;  }
   auto phase() -> double { return sp.propo / double(sp.denom - 1) * 360; }
   auto freq(double Hertz) -> decltype(sp) {
-    auto desiredFreq = ((MIN_FREQ < Hertz) ? ((MAX_FREQ > Hertz) ? Hertz : MAX_FREQ) : MIN_FREQ);
-    sp.divis = u16( floor( log2(MAX_VCO / desiredFreq) ) );
-    auto fractional_N{ desiredFreq / pfd * pow(2, sp.divis) };
+    Hertz = ((MIN_FREQ < Hertz) ? ((MAX_FREQ > Hertz) ? Hertz : MAX_FREQ) : MIN_FREQ);
+    sp.divis = u16( floor( log2(MAX_VCO / Hertz) ) );
+    auto fractional_N{ Hertz / pfd * pow(2, sp.divis) };
     sp.whole = u16( floor( fractional_N ) );
     sp.whole = (22 < sp.whole) ? sp.whole : 22;
     sp.denom = u16( round( pfd / step ) );
     sp.numer = u16( round( (fractional_N - sp.whole) * sp.denom) );
     return sp;  }
-  auto freq() -> double {
-    return pfd * (sp.whole + double(sp.numer) / sp.denom) / pow(2,sp.divis); };
-}; /* End Cursor */ Cursor cursor( PFD, OSC / 5e3 );
+  using D = double;
+  auto freq() -> D { return pfd * (sp.whole + D(sp.numer) / sp.denom) / pow(2,sp.divis); };
+}; /* End Cursor */ Cursor control( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
   SPI.begin();
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // rf output enable. Lock is attainable disabled.
     // For OnOffKeying (OOK) start with 'key' off.
-  digitalWrite(static_cast<u8>(PIN::PDR), E::ON );
+  key( E::OFF );
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See tx(). */
@@ -205,7 +205,7 @@ auto setup() -> void {
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ OVL temp; /* Setup a temporary, Specified Overlay.
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
-    Four set() calls are made for each cursor.freq(double). So, S::_end - 4, remaining. */
+    Four set() calls are made for each control.freq(double). So, S::_end - 4, remaining. */
                                           // S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp.set( S::phase, 1);                 // Adjust phase AFTER loop lock.         REDUNDANT?           (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
@@ -256,7 +256,7 @@ auto setup() -> void {
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
   constexpr auto BscClkDiv = ceil(PFD / MIN_PFD);
   static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
-  temp.set( S::bandSelClkDiv, u8(BscClkDiv) );                                          // (33)
+  temp.set( S::bandSelClkDiv, u8(BscClkDiv) );                                             // (33)
                                           // S::rfDivSelect                                   (34)
   temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
     It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
@@ -269,16 +269,16 @@ pll = temp;  /* Save and exit scope (discarding temp). */ }
   void pl(   const u32& arg, int num = DEC) { Serial.println(arg,num); };
   void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void { auto f0{ 65.4321e6 }; // Serial.begin(1000000L); delay(1000L);
-pll.set(cursor.freq( f0 )).flush(); wait4lock(); pr(cursor.freq()); pl(cursor.freq()-f0);
+auto loop() -> void { double f0{ 65.4321e6 }; // Serial.begin(1000000L); delay(1000L);
+pll.set(control.freq( f0 )).flush(); wait4lock();// pr(control.freq()); pl(control.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
-    //  pll.phaseAdjust(E::ON).set(cursor.phase(270)).flush();  
-        //  pr(cursor.phase()); pl(cursor.phase()-270);
-while(1); }    /* { // Alternate loop() (up-dn frequency sweep)
+    //  pll.phaseAdjust(E::ON).set(control.phase(270)).flush();  
+        //  pr(control.phase()); pl(control.phase()-270);
+while(1); }    /* { // Alternate loop(): (up-dn frequency sweep)
     auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
-    pll.set( cursor.freq(f += df) ).flush(); wait4lock();
-    pr( cursor.freq() ); pl( cursor.freq() - f );
+    pll.set( control.freq(f += df) ).flush(); wait4lock();
+    pr( control.freq() ); pl( control.freq() - f );
     if( (34.625e6 <= f) || (MIN_FREQ >= f) ) df = -df;
     delay(3000L); } */
     /*  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them. */
