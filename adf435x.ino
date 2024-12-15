@@ -112,7 +112,7 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct StateParameters { u16 divis, whole, denom, numer, propo; };
 constexpr StateParameters EmptyStateParameters{ 0,0,0,0,1 };
-static StateParameters keep{ EmptyStateParameters };
+static StateParameters memory{ EmptyStateParameters };
   /* ©2024 kd9fww */
 struct SpecifiedOverlay {
   struct Device {
@@ -127,11 +127,11 @@ struct SpecifiedOverlay {
   auto chkSet( const S& sym,const u16& val ) -> decltype(*this) {
     switch(sym) {
       default: return *this;
-      case S::fraction:     if(val != keep.numer) return set( sym,keep.numer = val ); break;
-      case S::integer:      if(val != keep.whole) return set( sym,keep.whole = val ); break;
-      case S::phase:        if(val != keep.propo) return set( sym,keep.propo = val ); break;
-      case S::modulus:      if(val != keep.denom) return set( sym,keep.denom = val ); break;
-      case S::rfDivSelect:  if(val != keep.divis) return set( sym,keep.divis = val ); break; 
+      case S::fraction:     if(val != memory.numer) return set( sym,memory.numer = val ); break;
+      case S::integer:      if(val != memory.whole) return set( sym,memory.whole = val ); break;
+      case S::phase:        if(val != memory.propo) return set( sym,memory.propo = val ); break;
+      case S::modulus:      if(val != memory.denom) return set( sym,memory.denom = val ); break;
+      case S::rfDivSelect:  if(val != memory.divis) return set( sym,memory.divis = val ); break; 
      }  }
   auto phaseAdjust( const E& e ) -> decltype(*this) { set( S::phase_adjust,e ); return *this; }
       // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
