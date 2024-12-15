@@ -2,7 +2,7 @@
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
-  US$45, for an assembled pll module from a company with the same name as a South American river.
+  US$30, for an assembled pll module from a major online discount household retail store.
   Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty;
   https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (shifter
   chip + bypass cap) assembly. It's pinout is labeled. I acquired mine, and the Nano, for cheap
@@ -68,7 +68,7 @@ const auto log2 = [](double arg) { return log10(arg) / log10(2); };
 const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
 enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 const auto rfHardEnable = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
-const auto txSPI = [](void *pByte, int nByte) {   // SPI transmit
+const auto txSPI = [](void *pByte, int nByte) {
   auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
   while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
@@ -89,14 +89,15 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     rfDivSelect,  rfFBselect,   led_mode,
     _end
   };  using S = Symbol;
-static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
-  Human deduced via inspection of the datasheet. Unique to the ADF435x.
+struct Specification { const u8 RANK, OFFSET, WIDTH; }; /*
     N:      Number of (32 bit) "registers": 6
     RANK:   Datasheet Register Number = N - 1 - RANK
             txSPI() in ascending RANK order, unless not dirty. Thus, datasheet register '0' is
             always txSPI()'d last (and will always need to be txSPI()'d). See flush() below.
     OFFSET: Zero based position of the field's least significant bit.
     WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star• */
+constexpr Specification ADF435x[] = { /*
+  Human deduced via inspection of the datasheet. Unique to the ADF435x. */
   [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
   [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phase_adjust] = {4, 28, 1},
   [S::counterReset] = {3, 3, 1},  [S::cp3state] = {3, 4, 1},      [S::idle] = {3, 5, 1},
@@ -111,43 +112,45 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct StateParameters { u16 divis, whole, denom, numer, propo; };
-constexpr StateParameters EmptyStateParameters{ 0,0,0,0,1 };
-static StateParameters memory{ EmptyStateParameters };
   /* ©2024 kd9fww */
 struct SpecifiedOverlay {
+  static const Specification* spec;
+  static StateParameters memory;
   struct Device {
     static constexpr auto N{ 6 };
     using RegArray = std::array<u32, N>; /*
-      With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. 
-      This mechanism adheres to the principle of 'Resource Aquisition Is Initialization' (RAII),
-      with container class' construction using an (embedded, fixed) initializer-list. See:
-      "The C++ Programming Language". Fourth Edition. Stroustrup. 2013. §3.2.1.2, §3.2.1.3, p64 */
+      With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. These
+      regions become 'invariants' by not providing fields for them in the Specification. As such,
+      this mechanism adheres to the principle of 'Resource Aquisition Is Initialization' (RAII),
+      via the containing class' constructor with an (embedded, fixed) initializer-list. See: "The
+      C++ Programming Language". Fourth Edition. Stroustrup. 2013. §3.2.1.2, §3.2.1.3, §17.3.4 */
   u8 durty; SPISettings settings;RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
-  auto chkSet( const S& sym,const u16& val ) -> decltype(*this) {
-    switch(sym) {
-      default: return *this;
-      case S::fraction:     if(val != memory.numer) return set( sym,memory.numer = val ); break;
-      case S::integer:      if(val != memory.whole) return set( sym,memory.whole = val ); break;
-      case S::phase:        if(val != memory.propo) return set( sym,memory.propo = val ); break;
-      case S::modulus:      if(val != memory.denom) return set( sym,memory.denom = val ); break;
-      case S::rfDivSelect:  if(val != memory.divis) return set( sym,memory.divis = val ); break; 
-     }  }
-  auto phaseAdjust( const E& e ) -> decltype(*this) { set( S::phase_adjust,e ); return *this; }
-      // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
-  auto set( const S& symbol,const u16& value ) -> decltype(*this) {
+  auto phaseAdjust( const E& e ) -> decltype(*this) { raw( S::phase_adjust,e ); return *this; }
+      // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
+  auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
-    auto pSpec = &ADF435x[ static_cast<const u8>( symbol ) ];
+    auto pSpec = &spec[ static_cast<const u8>( symbol ) ];
     dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
     dev.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // Then, on.
     static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
     dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
     return *this; }
+      // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
+  auto set( const S& sym,const u16& val ) -> decltype(*this) {  // wrapper for raw()
+    switch(sym) {
+      default: return raw( sym,val );
+      case S::fraction:     if(val != memory.numer) return raw( sym,memory.numer = val ); break;
+      case S::integer:      if(val != memory.whole) return raw( sym,memory.whole = val ); break;
+      case S::phase:        if(val != memory.propo) return raw( sym,memory.propo = val ); break;
+      case S::modulus:      if(val != memory.denom) return raw( sym,memory.denom = val ); break;
+      case S::rfDivSelect:  if(val != memory.divis) return raw( sym,memory.divis = val ); break; 
+     }  }
   auto set( const StateParameters& sp ) -> decltype(*this) {
-    chkSet( S::fraction,sp.numer ).chkSet( S::integer,sp.whole );
-    chkSet( S::modulus,sp.denom ).chkSet( S::phase,sp.propo );
-    chkSet( S::rfDivSelect,sp.divis );
+    set( S::fraction,sp.numer ).set( S::integer,sp.whole );
+    set( S::modulus,sp.denom ).set( S::phase,sp.propo );
+    set( S::rfDivSelect,sp.divis );
     return *this;  }
   auto flush() -> void {  // When it is appropriate to do so, flush() 'it' to the target (pll).
     char cx{ 0 };
@@ -162,7 +165,10 @@ struct SpecifiedOverlay {
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. 8-P */ }
-}; /* End SpecifiedOverlay */
+}; /* End struct SpecifiedOverlay */
+const Specification* SpecifiedOverlay::spec{ ADF435x };
+constexpr StateParameters initialStateParameters{ 0, 0, 0, 0, 1 };
+StateParameters SpecifiedOverlay::memory{ initialStateParameters };
   /* ©2024 kd9fww */
 SpecifiedOverlay pll;
   constexpr auto  FLAG{ E::ON };
@@ -183,12 +189,12 @@ SpecifiedOverlay pll;
 class Marker {
   private:
     double pfd, step;
-    StateParameters sp{ EmptyStateParameters };
+    StateParameters sp{ initialStateParameters };
   public:
   virtual ~Marker() {}
-  explicit Marker(double _pfd, double _stp ) : pfd{ _pfd }, step{ _stp } {}
-  #undef degrees                                    // "Good grief, Charlie Brown." C.M. Schulz.
-  auto phase(double degrees) -> decltype(sp) {      // (degrees / 360) = (propo / (denom-1))
+  explicit Marker(const double& _pfd, const double& _step) : pfd{_pfd}, step{_step} {}
+  #undef degrees                                // "Good grief, Charlie Brown." C.M. Schulz.
+  auto phase(double degrees) -> decltype(sp) {  // (degrees / 360) = (propo / (denom-1))
     degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
     auto proportion{ (degrees / 360 * (sp.denom - 1)) };
     sp.propo = u16( (proportion > sp.denom - 1) ? sp.denom - 1 : proportion );
@@ -203,9 +209,9 @@ class Marker {
     sp.denom = u16( round( pfd / step ) );
     sp.numer = u16( round( (fractional_N - sp.whole) * sp.denom) );
     return sp;  }
-  using D = double;
-  auto freq() -> D { return pfd * (sp.whole + D(sp.numer) / sp.denom) / pow(2,sp.divis); };
-}; /* End Marker */ Marker m( PFD, OSC / 5e3 );
+  using DBL = double;
+  auto freq() -> DBL { return pfd * (sp.whole + DBL(sp.numer) / sp.denom) / pow(2,sp.divis); };
+}; /* End class Marker */ Marker m( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
@@ -283,7 +289,7 @@ pll = temp;  /* Save and exit scope (discarding temp). */ }
   void pl(   const u32& arg, int num = DEC) { Serial.println(arg,num); };
   void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void { double f0{ 65.4321e6 }; // Serial.begin(1000000L); delay(1000L);
+auto loop() -> void { double f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
 pll.set(m.freq( f0 )).flush(); wait4lock();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
