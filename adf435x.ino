@@ -48,7 +48,8 @@
   ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - don't use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
-  • The LED (on D13) appears to be in contention with the default SPI clock line and is not easily
+  ------------------------------------------------------------------------------------------------
+  The LED (on D13) appears to be in contention with the default SPI clock line and is not easily
   open circuited. Look, 'Let It Be.' and 'Fughet about it.', OK? SPI will work regardless.
   ------------------------------------------------------------------------------------------------
   The scheme depicted makes it possible to power the system (Nano, Shfty, PLL) from these sources:
@@ -116,8 +117,8 @@ struct SpecifiedOverlay {
     static constexpr auto N{ 6 };
     using RegArray = std::array<u32, N>; /*
       With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. 
-      This mechanism adheres to the principle of 'Resource Aquisition Is Initialization', via
-      container class' construction with an (embedded, fixed) initializer-list. See:
+      This mechanism adheres to the principle of 'Resource Aquisition Is Initialization' (RAII),
+      with container class' construction using an (embedded, fixed) initializer-list. See:
       "The C++ Programming Language". Fourth Edition. Stroustrup. 2013. §3.2.1.2, §3.2.1.3, p64 */
   u8 durty; SPISettings settings; RegArray reg; } dev =
   { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0),  Device::RegArray{ 0x180005, 4, 3, 2, 1, 0 } };
@@ -168,13 +169,13 @@ SpecifiedOverlay pll;
   constexpr auto  REF_TGLR{ E::OFF }, REF_DBLR{ REF_TGLR };     // OFF if OSC IS a 50% square wave
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // For completeness.
   static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
-class Cursor {
+class Marker {
   private:
     double pfd, step;
     StateParameters sp = { 0, 0, 0, 0, 1 };
   public:
-  virtual ~Cursor() {}
-  explicit Cursor(double _pfd, double _stp ) : pfd{ _pfd }, step{ _stp } {}
+  virtual ~Marker() {}
+  explicit Marker(double _pfd, double _stp ) : pfd{ _pfd }, step{ _stp } {}
   #undef degrees                                    // "Good grief, Charlie Brown." C.M. Schulz.
   auto phase(double degrees) -> decltype(sp) {      // (degrees / 360) = (propo / (denom-1))
     degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
@@ -193,7 +194,7 @@ class Cursor {
     return sp;  }
   using D = double;
   auto freq() -> D { return pfd * (sp.whole + D(sp.numer) / sp.denom) / pow(2,sp.divis); };
-}; /* End Cursor */ Cursor control( PFD, OSC / 5e3 );
+}; /* End Marker */ Marker control( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
