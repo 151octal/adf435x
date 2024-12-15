@@ -193,13 +193,7 @@ class Marker {
   virtual ~Marker() {}
   explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, step{_step} {}
   #undef degrees                            // "Good grief, Charlie Brown." C.M. Schulz.
-  auto phase(DBL degrees) -> decltype(loci) { // (degrees / 360) = (propo / (denom-1))
-    degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
-    auto proportion{ (degrees / 360 * (loci.denom - 1)) };
-    loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
-    return loci;  }
-  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; }
-  auto freq(DBL Hertz) -> decltype(loci) {
+  auto freq(DBL Hertz) -> decltype(loci) {  // Hertz is a function scope copy.
     Hertz = ((MIN_FREQ < Hertz) ? ((MAX_FREQ > Hertz) ? Hertz : MAX_FREQ) : MIN_FREQ);
     loci.divis = u16( floor( log2(MAX_VCO / Hertz) ) );
     auto fractional_N{ Hertz / pfd * pow(2, loci.divis) };
@@ -208,7 +202,13 @@ class Marker {
     loci.denom = u16( round( pfd / step ) );
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
-  auto freq() -> DBL { return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis); }; };
+  auto freq() -> DBL { return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis); };
+  auto phase(DBL degrees) -> decltype(loci) { // (degrees / 360) = (propo / (denom-1))
+    degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
+    auto proportion{ (degrees / 360 * (loci.denom - 1)) };
+    loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
+    return loci;  }
+  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } };
 Marker m( PFD, OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
