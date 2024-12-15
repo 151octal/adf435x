@@ -9,7 +9,7 @@
   from the same aforementioned company.
   ------------------------------------------------------------------------------------------------
   This code is a single pll version only. A second pll would be accommodated with it's {le, ld} on
-  {D9, D8}, respectively. And sharing their {5v, clk, dat, pdr, GND} signals. With {REF, 3v3, mux}
+  {D9, D8}, respectively. And sharing their {REF, 5v, clk, dat, pdr, GND} signals. With {3v3, mux}
   from one pll only. •This scheme does not preclude the possibilty of supporting two plls• See below.
   ------------------------------------------------------------------------------------------------
   A mechanism for runtime frequency and phase control is provided.
@@ -63,11 +63,11 @@
 •BRICK• Don't exceed 5.5V for option 2 •BRICK• •Don't use options 2 AND 3• Man make fire. Ugh. */
   // Commented out, but wired:   D4                                      D11       D13 
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
-auto log2 = [](double arg) { return log10(arg) / log10(2); };
-const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Block until lock.
+const auto log2 = [](double arg) { return log10(arg) / log10(2); };
+const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
 enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-const auto key = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
-const auto tx = [](void *pByte, int nByte) { // SPI
+const auto rfHardEnable = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
+const auto txSPI = [](void *pByte, int nByte) {   // SPI transmit
   auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
   while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
@@ -82,7 +82,7 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     refToggler,   refDoubler,   muxOut,
     LnLsModes,    clkDivider,   clkDivMode,
     csr,          chrgCancel,   abp,
-    bscMode,      rfOutPwr,     rfOutEnable,
+    bscMode,      rfOutPwr,     rfSoftEnable,
     auxOutPwr,    auxOutEnable, auxFBselect,
     muteTillLD,   vcoPwrDown,   bandSelClkDiv,
     rfDivSelect,  rfFBselect,   led_mode,
@@ -92,8 +92,8 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   Human deduced via inspection of the datasheet. Unique to the ADF435x.
     N:      Number of (32 bit) "registers": 6
     RANK:   Datasheet Register Number = N - 1 - RANK
-            tx() in ascending RANK order, unless not dirty. Thus, datasheet register '0' is
-            always tx()'d last (and will always need to be tx()'d). See flush() below.
+            txSPI() in ascending RANK order, unless not dirty. Thus, datasheet register '0' is
+            always txSPI()'d last (and will always need to be txSPI()'d). See flush() below.
     OFFSET: Zero based position of the field's least significant bit.
     WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star• */
   [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
@@ -104,7 +104,7 @@ static constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[
   [S::refToggler] = {3, 24, 1},   [S::refDoubler] = {3, 25, 1},   [S::muxOut] = {3, 26, 3},
   [S::LnLsModes] = {3, 29, 2},    [S::clkDivider] = {2, 3, 12},   [S::clkDivMode] = {2, 15, 2},
   [S::csr] = {2, 18, 1},          [S::chrgCancel] = {2, 21, 1},   [S::abp] = {2, 22, 1},
-  [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfOutEnable] = {1, 5, 1},
+  [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfSoftEnable] = {1, 5, 1},
   [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bandSelClkDiv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };                                                  // End taedium #1 of two.
@@ -142,14 +142,15 @@ struct SpecifiedOverlay {
       case 0: return;                   /* None dirty. */
       case 1: cx = dev.N - 1; break;    /* r0 ••• */
       case 2: /* fall thru */           /* r1 ••• */
-      case 3: cx = dev.N - 2; break;    /* r1 and r0 ••• */ }
+      case 3: cx = dev.N - 2; break;    /* r1 and r0 ••• */
+      case 16: cx = dev.N - 4; break;   /* r4 ••• */ }
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
-    for(/* empty */; dev.N != cx; ++cx) tx( &dev.reg[cx], sizeof(dev.reg[cx]) );
+    for(/* empty */; dev.N != cx; ++cx) txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); /* Works and plays well with others. 8-P */ }
-}; /* End SpecifiedOverlay */ using OVL = SpecifiedOverlay;
+}; /* End SpecifiedOverlay */
   /* ©2024 kd9fww */
-OVL pll;
+SpecifiedOverlay pll;
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
   constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
@@ -196,14 +197,13 @@ class Cursor {
 auto setup() -> void {
   SPI.begin();
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // rf output enable. Lock is attainable disabled.
-    // For OnOffKeying (OOK) start with 'key' off.
-  key( E::OFF );
+  rfHardEnable( E::ON );                      // For OnOffKeying (OOK) start with E::OFF.
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
-    To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See tx(). */
+    To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
   pinMode(static_cast<u8>(PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
-{ /* Enter another scope. */ OVL temp; /* Setup a temporary, Specified Overlay.
+{ /* Enter another scope. */ SpecifiedOverlay temp; /* Setup a temporary, Specified Overlay.
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving.
     Four set() calls are made for each control.freq(double). So, S::_end - 4, remaining. */
                                           // S::fraction, S::integer, S::modulus      (1) (2) (3)
@@ -247,9 +247,9 @@ auto setup() -> void {
   temp.set( S::bscMode, (MIN_PFD < PFD) ? BandSelMd::programmed : BandSelMd::automatic );  // (25)
   constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
   temp.set( S::rfOutPwr, outPower );                                                       // (26)
-  temp.set( S::rfOutEnable, E::ON );                                                       // (27)
+  temp.set( S::rfSoftEnable, E::ON );                                                      // (27)
   temp.set( S::auxOutPwr, auxPower );                                                      // (28)
-  temp.set( S::auxOutEnable, E::OFF );    // Signal unavailable. Untested, thus.              (29)
+  temp.set( S::auxOutEnable, E::OFF );    // Signal unavailable. So, I can't test it.         (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
   temp.set( S::auxFBselect, Feedback );                                                    // (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
