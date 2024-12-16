@@ -69,7 +69,7 @@ class SpecifiedOverlay {
       C++ Programming Language". Fourth Edition. Stroustrup. 2013. §3.2.1.2, §3.2.1.3, §17.3.4 */
   u8 durty; SPISettings settings;RegArray reg; } dev =
     { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
-      // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
+    // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
   auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
@@ -80,7 +80,7 @@ class SpecifiedOverlay {
     dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
     return *this; }
   public:
-      // wrapper for raw(). usage: object.set( symA,valA ).set( symB,valB )
+    // wrapper for raw(). usage: object.set( symA,valA ).set( symB,valB )
   auto set( const S& sym,const u16& val ) -> decltype(*this) {
     switch(sym) {
       default: return raw( sym,val );
@@ -145,12 +145,12 @@ class Marker {
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
   auto freq() -> DBL { return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis); };
-    #ifdef degrees
-    #undef degrees                            // "Good grief, Charlie Brown." C.M. Schulz.
-    #endif
-  auto phase(DBL degrees) -> decltype(loci) { // (degrees / 360) = (propo / (denom-1))
-    degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
-    auto proportion{ (degrees / 360 * (loci.denom - 1)) };
+    /* //#ifdef degrees
+       //#undef degrees                         // "Good grief, Charlie Brown." C.M. Schulz.
+       //#endif  */
+  auto phase(DBL degrEEs) -> decltype(loci) { // (degrEEs / 360) = (propo / (denom-1))
+    degrEEs = { (360 < degrEEs) ? (360-degrEEs) : (0 > degrEEs) ? (360 + degrEEs) : degrEEs };
+    auto proportion{ (degrEEs / 360 * (loci.denom - 1)) };
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
   auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } };
