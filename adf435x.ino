@@ -53,11 +53,11 @@ constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bandSelClkDiv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-constexpr struct StateParameters { u16 divis, whole, denom, numer, propo; } initialSPs{0,0,0,0,1};
+constexpr struct StateParameters { u16 divis, whole, denom, numer, propo; } initSP{ 0,0,0,0,1 };
   /* ©2024 kd9fww */
 struct SpecifiedOverlay {
   static const Specification* const spec;
-  StateParameters loci{ initialSPs };
+  StateParameters mem{ initSP };
   struct Device {
     static constexpr auto N{ 6 };
     using RegArray = std::array<u32, N>; /*
@@ -83,16 +83,16 @@ struct SpecifiedOverlay {
   auto set( const S& symbol,const u16& value ) -> decltype(*this) {
     switch(symbol) {
       default: return raw( symbol,value );
-      case S::fraction:    if(value != loci.numer) return raw( symbol,loci.numer = value ); break;
-      case S::integer:     if(value != loci.whole) return raw( symbol,loci.whole = value ); break;
-      case S::phase:       if(value != loci.propo) return raw( symbol,loci.propo = value ); break;
-      case S::modulus:     if(value != loci.denom) return raw( symbol,loci.denom = value ); break;
-      case S::rfDivSelect: if(value != loci.divis) return raw( symbol,loci.divis = value ); break; 
+      case S::fraction:    if(value != mem.numer) return raw( symbol,mem.numer = value ); break;
+      case S::integer:     if(value != mem.whole) return raw( symbol,mem.whole = value ); break;
+      case S::phase:       if(value != mem.propo) return raw( symbol,mem.propo = value ); break;
+      case S::modulus:     if(value != mem.denom) return raw( symbol,mem.denom = value ); break;
+      case S::rfDivSelect: if(value != mem.divis) return raw( symbol,mem.divis = value ); break; 
      }  }
-  auto set( const StateParameters& loci ) -> decltype(*this) {
-    set( S::fraction,loci.numer ).set( S::integer,loci.whole );
-    set( S::phase,loci.propo ).set( S::modulus,loci.denom );
-    set( S::rfDivSelect,loci.divis );
+  auto set( const StateParameters& mem ) -> decltype(*this) {
+    set( S::fraction,mem.numer ).set( S::integer,mem.whole );
+    set( S::phase,mem.propo ).set( S::modulus,mem.denom );
+    set( S::rfDivSelect,mem.divis );
     return *this;  }
   auto flush() -> void {
     char cx{ 0 };
@@ -106,9 +106,9 @@ struct SpecifiedOverlay {
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
-    SPI.endTransaction(); }
-  };  /* ©2024 kd9fww */
+    SPI.endTransaction(); }  };
   const Specification* const SpecifiedOverlay::spec{ ADF435x };
+    /* ©2024 kd9fww */
 SpecifiedOverlay pll;
 constexpr    u16  REF_COUNTER{ 8 };
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
@@ -129,7 +129,7 @@ class Marker {
   using DBL = double;
   private:
     DBL pfd, step;
-    StateParameters loci{ initialSPs };
+    StateParameters loci{ initSP };
   public:
   virtual ~Marker() {}
   explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, step{_step} {}
