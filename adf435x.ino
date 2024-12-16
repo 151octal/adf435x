@@ -118,12 +118,12 @@ constexpr    u16  REF_COUNTER{ 8 };
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
   constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // OFF: iff OSC IS a 50% square wave
-  constexpr auto  FLAG{ E::ON };                    // ON: to include REF correction.
+  constexpr auto  FLAG{ E::ON };                    // OFF: No REF correction.
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
-  constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
-  constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // from the 'REF' measurement, below.
+  constexpr auto  CORRECTION{ -13 * CONSTRAINT };   // Arrived at by in reverse, from the REF
+  constexpr auto  REF_ERROR{ (FLAG) * CORRECTION }; // value measured, below.
   constexpr auto  OSC{ 25.000000e6 };               // Reference frequency. Yours may be different
-  constexpr auto  REF{ OSC + REF_ERROR };           // Measured frequency. YOURS WILL BE DIFFERENT
+  constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // Completeness sake
   static_assert( (MIN_PFD <= PFD) && (MAX_PFD >= PFD) );
