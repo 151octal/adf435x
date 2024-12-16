@@ -135,8 +135,8 @@ SpecifiedOverlay pll;
 class Marker {
   using DBL = double;
   private:
-    DBL pfd, step;
-    StateParameters loci{ initSP };
+  DBL pfd, step;
+  StateParameters loci{ initSP };
   public:
   static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
   virtual ~Marker() {}
@@ -239,7 +239,7 @@ auto setup() -> void {
   void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { double f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
-::pll.set(m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
+::pll.set(::m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
     //  pll.phaseAdjust(E::ON).set(m.phase(270)).flush();  
