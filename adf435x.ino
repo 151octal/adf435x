@@ -5,19 +5,18 @@
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
   A mechanism for runtime frequency and phase control is provided.                              */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
-#include <SPI.h>  
+#include <SPI.h>
   // Commented out, but wired:   D4                                      D11       D13 
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
-  using DBL = double;
-  const auto log2 = [](DBL arg) { return log10(arg) / log10(2); };
-  const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
-  enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-  const auto rfHardEnable = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
-  const auto txSPI = [](void *pByte, int nByte) {
-    auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
-    digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
-    while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
-    digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // Data is latched on the rising edge.
+const auto log2 = [](double arg) { return log10(arg) / log10(2); };
+const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
+enum Enable { OFF = 0, ON = 1 };  using E = Enable;
+const auto rfHardEnable = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
+const auto txSPI = [](void *pByte, int nByte) {
+  auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
+  digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
+  while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
+  digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // Data is latched on the rising edge.
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -114,6 +113,7 @@ SpecifiedOverlay pll;
   const Specification* const SpecifiedOverlay::spec{ ADF435x };
   constexpr StateParameters initialStateParameters{ 0, 0, 0, 0, 1 };
   StateParameters SpecifiedOverlay::mem{ initialStateParameters };
+constexpr    u16  REF_COUNTER{ 8 };
   constexpr auto  FLAG{ E::ON };
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
   constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
@@ -124,20 +124,19 @@ SpecifiedOverlay pll;
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // Manifest constants ...
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }; // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-  constexpr  u16  REF_COUNTER{ 8 };
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
   constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // If OSC IS a 50% square wave: OFF
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // Completeness sake
   static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
 class Marker {
+  using DBL = double;
   private:
     DBL pfd, step;
     StateParameters loci{ initialStateParameters };
   public:
   virtual ~Marker() {}
   explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, step{_step} {}
-  #undef degrees                            // "Good grief, Charlie Brown." C.M. Schulz.
-  auto freq(DBL Hertz) -> decltype(loci) {  // Hertz is a function scope copy.
+  auto freq(DBL Hertz) -> decltype(loci) {    // Hertz is a function scope copy.
     Hertz = ((MIN_FREQ < Hertz) ? ((MAX_FREQ > Hertz) ? Hertz : MAX_FREQ) : MIN_FREQ);
     loci.divis = u16( floor( log2(MAX_VCO / Hertz) ) );
     auto fractional_N{ Hertz / pfd * pow(2, loci.divis) };
@@ -147,6 +146,7 @@ class Marker {
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
   auto freq() -> DBL { return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis); };
+  #undef degrees                              // "Good grief, Charlie Brown." C.M. Schulz.
   auto phase(DBL degrees) -> decltype(loci) { // (degrees / 360) = (propo / (denom-1))
     degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
     auto proportion{ (degrees / 360 * (loci.denom - 1)) };
@@ -167,7 +167,7 @@ auto setup() -> void {
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ SpecifiedOverlay temp; /*
   (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving. Four
-  set() calls are made for each m.freq(DBL). So, S::_end - 4, remaining. */
+  set() calls are made for each m.freq(double). So, S::_end - 4, remaining. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp.set( S::phase, 1);                            // Adjust phase AFTER loop lock.         (4)
   temp.set( S::phase_adjust, E::OFF );                                                     // (5)
@@ -225,12 +225,12 @@ auto setup() -> void {
   temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* End setup() */ }
-  void pr(const u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
-  void pr(const DBL& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
-  void pl(const u32& arg, int num = DEC) { Serial.println(arg,num); };
-  void pl(const DBL& arg, int num = 0  ) { Serial.println(arg,num); };
+  void pr(const    u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
+  void pr(const double& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
+  void pl(const    u32& arg, int num = DEC) { Serial.println(arg,num); };
+  void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void { DBL f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
+auto loop() -> void { double f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
   pll.set(m.freq( f0 )).flush(); wait4lock();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
