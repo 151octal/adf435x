@@ -5,21 +5,22 @@
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
 #include <SPI.h>
-  // Commented out, but wired:   D4                                      D11       D13 
+    namespace HardWare { /*
+  Commented out, but wired:      D4                                      D11       D13 */
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
-const auto log2 = [](double arg) { return log10(arg) / log10(2); };
-const auto wait4lock = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
-enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-const auto rfHardEnable = [](E enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
+const auto wait = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
+const auto rfHardEnable = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
 const auto txSPI = [](void *pByte, int nByte) {
   auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
   while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
-  digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; // Data is latched on the rising edge.
+  digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
+ } namespace HW = HardWare;
+const auto log2 = [](double arg) { return log10(arg) / log10(2); };
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
-    phase,        prescaler,    phase_adjust,
+    phase,        prescaler,    phAdj,
     counterReset, cp3state,     idle,
     pdPolarity,   ldp,          ldf,
     cpIndex,      dblBfr,       rCounter,
@@ -28,11 +29,12 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     csr,          chrgCancel,   abp,
     bscMode,      rfOutPwr,     rfSoftEnable,
     auxOutPwr,    auxOutEnable, auxFBselect,
-    muteTillLD,   vcoPwrDown,   bandSelClkDiv,
+    muteTillLD,   vcoPwrDown,   bndSelClkDv,
     rfDivSelect,  rfFBselect,   ledMode,
     _end
   };  using S = Symbol;
-constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
+  using namespace HW;
+constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
   Human deduced via inspection.
     N:      Number of (32 bit) "registers": 6
     RANK:   Datasheet Register Number = N - 1 - RANK
@@ -41,7 +43,7 @@ constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /
     OFFSET: Zero based position of the field's least significant bit.
     WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star• */
   [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
-  [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phase_adjust] = {4, 28, 1},
+  [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phAdj] = {4, 28, 1},
   [S::counterReset] = {3, 3, 1},  [S::cp3state] = {3, 4, 1},      [S::idle] = {3, 5, 1},
   [S::pdPolarity] = {3, 6, 1},    [S::ldp] = {3, 7, 1},           [S::ldf] = {3, 8, 1},
   [S::cpIndex] = {3, 9, 4},       [S::dblBfr] = {3, 13, 1},       [S::rCounter] = {3, 14, 10},
@@ -50,14 +52,17 @@ constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /
   [S::csr] = {2, 18, 1},          [S::chrgCancel] = {2, 21, 1},   [S::abp] = {2, 22, 1},
   [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfSoftEnable] = {1, 5, 1},
   [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
-  [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bandSelClkDiv] = {1, 12, 8},
+  [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
+  using LSpec = LayoutSpecification;
+ }
 constexpr struct StateParameters { u16 divis, whole, denom, numer, propo; } initSP{ 0,0,0,0,1 };
+enum Enable { OFF = 0, ON = 1 };  using E = Enable;
   /* ©2024 kd9fww */
 class SpecifiedOverlay {
   private:
-  static const Specification* const spec;
+  static const HW::LSpec* const layoutSpec;
   StateParameters mem{ initSP };
   struct Device {
     static constexpr auto N{ 6 };
@@ -73,7 +78,7 @@ class SpecifiedOverlay {
   auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
     static constexpr u32 MASK[] = {
       0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
-    auto pSpec = &spec[ static_cast<const u8>( symbol ) ];
+    auto pSpec = &layoutSpec[ static_cast<const u8>( symbol ) ];
     dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
     dev.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // Then, on.
     static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
@@ -106,12 +111,13 @@ class SpecifiedOverlay {
       case 16: cx = dev.N - 4; break;   /* r4 ••• */ }
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
-    for(/* empty */; dev.N != cx; ++cx) txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
+    for(/* empty */; dev.N != cx; ++cx) HW::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
-  auto phaseAdjust( const E& e ) -> decltype(*this) { raw( S::phase_adjust,e ); return *this; } };
-  const Specification* const SpecifiedOverlay::spec{ ADF435x };
+  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; } };
+  const HW::LayoutSpecification* const SpecifiedOverlay::layoutSpec{ HW::ADF435x };
     /* ©2024 kd9fww */
 SpecifiedOverlay pll;
+  using namespace HW;
 constexpr    u16  REF_COUNTER{ 8 };
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
@@ -159,19 +165,19 @@ Marker m( PFD, OSC / 5e3 );
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
   SPI.begin();
-  pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // rf output enable. Lock is attainable disabled.
-  rfHardEnable( E::ON );                      // For OnOffKeying (OOK) start with E::OFF.
-  pinMode(static_cast<u8>(PIN::LE), OUTPUT);
-  digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
+  pinMode(static_cast<u8>(HW::PIN::PDR), OUTPUT); // Rf output enable.
+  HW::rfHardEnable( E::ON );                      // For OnOffKeying (OOK) start with E::OFF.
+  pinMode(static_cast<u8>(HW::PIN::LE), OUTPUT);
+  digitalWrite(static_cast<u8>(HW::PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
-  pinMode(static_cast<u8>(PIN::LD), INPUT);   // Lock detect.
+  pinMode(static_cast<u8>(HW::PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ SpecifiedOverlay temp; /*
   Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
   m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp.set( S::phase, 1);                            // Adjust phase AFTER loop lock.         (4)
-  temp.set( S::phase_adjust, E::OFF );                                                     // (5)
+  temp.set( S::phAdj, E::OFF );                                                            // (5)
   enum PRSCL { four5ths = 0, eight9ths }; // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths)
   temp.set( S::prescaler,PRSCL::eight9ths );                                               // (6)
   temp.set( S::counterReset, E::OFF );                                                     // (7)
@@ -218,7 +224,7 @@ auto setup() -> void {
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
   constexpr auto BscClkDiv = ceil(PFD / MIN_PFD);
   static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
-  temp.set( S::bandSelClkDiv, u8(BscClkDiv) );                                             // (33)
+  temp.set( S::bndSelClkDv, u8(BscClkDiv) );                                             // (33)
   // S::rfDivSelect                                                                           (34)
   temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
@@ -232,14 +238,14 @@ pll = temp;  /* Save and exit scope (discarding temp). */ }
   void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { double f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
-  pll.set(m.freq( f0 )).flush(); wait4lock();// pr(m.freq()); pl(m.freq()-f0);
+  pll.set(m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
     //  pll.phaseAdjust(E::ON).set(m.phase(270)).flush();  
         //  pr(m.phase()); pl(m.phase()-270);
 while(1); }    /* { // Alternate loop(): (up-dn frequency sweep)
     auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
-    pll.set( m.freq(f += df) ).flush(); wait4lock();
+    pll.set( m.freq(f += df) ).flush(); wait();
     pr( m.freq() ); pl( m.freq() - f );
     if( (34.625e6 <= f) || (MIN_FREQ >= f) ) df = -df;
     delay(3000L); } */
