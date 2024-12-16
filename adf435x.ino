@@ -2,8 +2,7 @@
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
-  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
-  A mechanism for runtime frequency and phase control is provided.                              */
+  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
 #include <SPI.h>
   // Commented out, but wired:   D4                                      D11       D13 
@@ -30,17 +29,17 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     bscMode,      rfOutPwr,     rfSoftEnable,
     auxOutPwr,    auxOutEnable, auxFBselect,
     muteTillLD,   vcoPwrDown,   bandSelClkDiv,
-    rfDivSelect,  rfFBselect,   led_mode,
+    rfDivSelect,  rfFBselect,   ledMode,
     _end
   };  using S = Symbol;
-struct Specification { const u8 RANK, OFFSET, WIDTH; }; /*
+constexpr struct Specification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
+  Human deduced via inspection.
     N:      Number of (32 bit) "registers": 6
     RANK:   Datasheet Register Number = N - 1 - RANK
             txSPI() in ascending RANK order, unless not dirty. Thus, datasheet register '0' is
             always txSPI()'d last (and will always need to be txSPI()'d). See flush() below.
     OFFSET: Zero based position of the field's least significant bit.
     WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star• */
-constexpr Specification ADF435x[] = { /* Human deduced via inspection. */
   [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
   [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phase_adjust] = {4, 28, 1},
   [S::counterReset] = {3, 3, 1},  [S::cp3state] = {3, 4, 1},      [S::idle] = {3, 5, 1},
@@ -52,7 +51,7 @@ constexpr Specification ADF435x[] = { /* Human deduced via inspection. */
   [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfSoftEnable] = {1, 5, 1},
   [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bandSelClkDiv] = {1, 12, 8},
-  [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::led_mode] = {0, 22, 2} };
+  [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct StateParameters { u16 divis, whole, denom, numer, propo; };
   /* ©2024 kd9fww */
@@ -68,7 +67,7 @@ struct SpecifiedOverlay {
       via the containing class' constructor with an (embedded, fixed) initializer-list. See: "The
       C++ Programming Language". Fourth Edition. Stroustrup. 2013. §3.2.1.2, §3.2.1.3, §17.3.4 */
   u8 durty; SPISettings settings;RegArray reg; } dev =
-  { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
+    { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
   auto phaseAdjust( const E& e ) -> decltype(*this) { raw( S::phase_adjust,e ); return *this; }
       // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
   auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
@@ -80,8 +79,8 @@ struct SpecifiedOverlay {
     static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
     dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
     return *this; }
-      // usage: object.set( symA,valA ).set( symB,valB ) ••• ad infinitum
-  auto set( const S& sym,const u16& val ) -> decltype(*this) {  // wrapper for raw()
+      // wrapper for raw(). usage: object.set( symA,valA ).set( symB,valB )
+  auto set( const S& sym,const u16& val ) -> decltype(*this) {
     switch(sym) {
       default: return raw( sym,val );
       case S::fraction:     if(val != mem.numer) return raw( sym,mem.numer = val ); break;
@@ -107,27 +106,27 @@ struct SpecifiedOverlay {
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
-    SPI.endTransaction(); } };
-    /* ©2024 kd9fww */
-SpecifiedOverlay pll;
+    SPI.endTransaction(); }
+  };  /* ©2024 kd9fww */
   const Specification* const SpecifiedOverlay::spec{ ADF435x };
   constexpr StateParameters initialStateParameters{ 0, 0, 0, 0, 1 };
   StateParameters SpecifiedOverlay::mem{ initialStateParameters };
+SpecifiedOverlay pll;
 constexpr    u16  REF_COUNTER{ 8 };
-  constexpr auto  FLAG{ E::ON };
+  constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
+  constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
+  constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
+  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
+  constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // OFF: iff OSC IS a 50% square wave
+  constexpr auto  FLAG{ E::ON };                    // ON: to include REF correction.
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
   constexpr auto  USER_TRIM{ -13 * CONSTRAINT };    // Zero based, via human working in reverse,
   constexpr auto  REF_ERROR{ (FLAG) * USER_TRIM };  // from the 'REF' measurement, below.
-  constexpr auto  OSC{ 25.000000e6 };               // Nominal ref. freq. Yours may be different.
-  constexpr auto  REF{ OSC + REF_ERROR };           // Measured. YOURS WILL BE DIFFERENT.
+  constexpr auto  OSC{ 25.000000e6 };               // Reference frequency. Yours may be different
+  constexpr auto  REF{ OSC + REF_ERROR };           // Measured frequency. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-  constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 }; // Manifest constants ...
-  constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 }; // ... from the datasheet
-  constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
-  constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // If OSC IS a 50% square wave: OFF
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // Completeness sake
-  static_assert((MIN_PFD <= PFD) && (MAX_PFD >= PFD));
+  static_assert( (MIN_PFD <= PFD) && (MAX_PFD >= PFD) );
 class Marker {
   using DBL = double;
   private:
@@ -146,7 +145,9 @@ class Marker {
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
   auto freq() -> DBL { return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis); };
-  #undef degrees                              // "Good grief, Charlie Brown." C.M. Schulz.
+    #ifdef degrees
+    #undef degrees                            // "Good grief, Charlie Brown." C.M. Schulz.
+    #endif
   auto phase(DBL degrees) -> decltype(loci) { // (degrees / 360) = (propo / (denom-1))
     degrees = { (360 < degrees) ? (360-degrees) : (0 > degrees) ? (360 + degrees) : degrees };
     auto proportion{ (degrees / 360 * (loci.denom - 1)) };
@@ -166,65 +167,65 @@ auto setup() -> void {
   pinMode(static_cast<u8>(PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
 { /* Enter another scope. */ SpecifiedOverlay temp; /*
-  (Qty:S::_end) calls of set() are required, in any order. Be sure to flush() after saving. Four
-  set() calls are made for each m.freq(double). So, S::_end - 4, remaining. */
+  Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
+  m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp.set( S::phase, 1);                            // Adjust phase AFTER loop lock.         (4)
-  temp.set( S::phase_adjust, E::OFF );                                                     // (5)
+  temp.raw( S::phase_adjust, E::OFF );                                                     // (5)
   enum PRSCL { four5ths = 0, eight9ths }; // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths)
-  temp.set( S::prescaler,PRSCL::eight9ths );                                               // (6)
-  temp.set( S::counterReset, E::OFF );                                                     // (7)
-  temp.set( S::cp3state, E::OFF );                                                         // (8)
-  temp.set( S::idle, E::OFF );                                                             // (9)
+  temp.raw( S::prescaler,PRSCL::eight9ths );                                               // (6)
+  temp.raw( S::counterReset, E::OFF );                                                     // (7)
+  temp.raw( S::cp3state, E::OFF );                                                         // (8)
+  temp.raw( S::idle, E::OFF );                                                             // (9)
   enum PDpolarity { negative = 0, positive };
-  temp.set( S::pdPolarity, PDpolarity::positive );                                         // (10)
+  temp.raw( S::pdPolarity, PDpolarity::positive );                                         // (10)
   enum LDPnS { ten = 0, six };            // Lock Detect Precision nanoSeconds
-  temp.set( S::ldp, LDPnS::ten );                                                          // (11)
+  temp.raw( S::ldp, LDPnS::ten );                                                          // (11)
   enum LockDetectFunction{ fracN = 0, intN };
-  temp.set( S::ldf, LockDetectFunction::fracN );                                           // (12)
-  temp.set( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.       (13)
-  temp.set( S::dblBfr, E::ON );                                                            // (14)
-  temp.set( S::rCounter, REF_COUNTER );                                                    // (15)
-  temp.set( S::refToggler, REF_TGLR );                                                     // (16)
-  temp.set( S::refDoubler, REF_DBLR );                                                     // (17)
+  temp.raw( S::ldf, LockDetectFunction::fracN );                                           // (12)
+  temp.raw( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.       (13)
+  temp.raw( S::dblBfr, E::ON );                                                            // (14)
+  temp.raw( S::rCounter, REF_COUNTER );                                                    // (15)
+  temp.raw( S::refToggler, REF_TGLR );                                                     // (16)
+  temp.raw( S::refDoubler, REF_DBLR );                                                     // (17)
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
-  temp.set( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                (18)
+  temp.raw( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                (18)
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
   //static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
-  temp.set( S::LnLsModes, nsMode );                                                        // (19)
+  temp.raw( S::LnLsModes, nsMode );                                                        // (19)
   constexpr auto CLKDIV32 = 150;          // I don't understand this, YET.
   //= round( PFD / MODULUS * 400e-6 ); // from datasheets'
   // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
   static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
-  temp.set( S::clkDivider, CLKDIV );                                                       // (20)
+  temp.raw( S::clkDivider, CLKDIV );                                                       // (20)
   enum ClockingMode { dividerOff = 0, fastLock, phResync };
-  temp.set( S::clkDivMode, ClockingMode::dividerOff );                                     // (21)
-  temp.set( S::csr, E::ON );              // Cycle Slip reduction                             (22)
-  temp.set( S::chrgCancel, E::OFF );                                                       // (23)
+  temp.raw( S::clkDivMode, ClockingMode::dividerOff );                                     // (21)
+  temp.raw( S::csr, E::ON );              // Cycle Slip reduction                             (22)
+  temp.raw( S::chrgCancel, E::OFF );                                                       // (23)
   enum ABPnS { nS6fracN = 0, nS3intN };   // AntiBacklash Pulse nanoSeconds
-  temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
+  temp.raw( S::abp, ABPnS::nS6fracN );                                                     // (24)
   enum BandSelMd { automatic = 0, programmed };
-  temp.set( S::bscMode, (MIN_PFD < PFD) ? BandSelMd::programmed : BandSelMd::automatic );  // (25)
+  temp.raw( S::bscMode, (MIN_PFD < PFD) ? BandSelMd::programmed : BandSelMd::automatic );  // (25)
   constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
-  temp.set( S::rfOutPwr, outPower );                                                       // (26)
-  temp.set( S::rfSoftEnable, E::ON );                                                      // (27)
-  temp.set( S::auxOutPwr, auxPower );                                                      // (28)
-  temp.set( S::auxOutEnable, E::OFF );    // Signal unavailable. So, I can't test it.         (29)
+  temp.raw( S::rfOutPwr, outPower );                                                       // (26)
+  temp.raw( S::rfSoftEnable, E::ON );                                                      // (27)
+  temp.raw( S::auxOutPwr, auxPower );                                                      // (28)
+  temp.raw( S::auxOutEnable, E::OFF );    // Signal unavailable. So, I can't test it.         (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
-  temp.set( S::auxFBselect, Feedback );                                                    // (30)
-  temp.set( S::muteTillLD, E::ON );                                                        // (31)
-  temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
+  temp.raw( S::auxFBselect, Feedback );                                                    // (30)
+  temp.raw( S::muteTillLD, E::ON );                                                        // (31)
+  temp.raw( S::vcoPwrDown, E::OFF );                                                       // (32)
   constexpr auto BscClkDiv = ceil(PFD / MIN_PFD);
   static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
-  temp.set( S::bandSelClkDiv, u8(BscClkDiv) );                                             // (33)
+  temp.raw( S::bandSelClkDiv, u8(BscClkDiv) );                                             // (33)
   // S::rfDivSelect                                                                           (34)
-  temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
+  temp.raw( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
-  enum LedMode { low = 0, lockDetect = 1, high = 3 };
-  temp.set( S::led_mode, LedMode::lockDetect );                             // Ding. Winner!  (36)
+  enum LEDmode { low = 0, lockDetect = 1, high = 3 };
+  temp.raw( S::ledMode, LEDmode::lockDetect );                             // Ding. Winner!  (36)
 pll = temp;  /* Save and exit scope (discarding temp). */ }
-/* End setup() */ }
+/* Exit setup() */ }
   void pr(const    u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
   void pr(const double& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
   void pl(const    u32& arg, int num = DEC) { Serial.println(arg,num); };
