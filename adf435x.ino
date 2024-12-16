@@ -115,10 +115,11 @@ class SpecifiedOverlay {
     /* ©2024 kd9fww */
 SpecifiedOverlay pll;
   namespace Manifest {
-constexpr    u16  REF_COUNTER{ 8 };
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
+} namespace MF = Manifest; namespace Synthesizer {
+  constexpr    u16  REF_COUNTER{ 8 };
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
   constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // OFF: iff OSC IS a 50% square wave
   constexpr auto  FLAG{ E::ON };                    // OFF: No REF correction.
@@ -129,8 +130,8 @@ constexpr    u16  REF_COUNTER{ 8 };
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // Completeness sake
-  static_assert( (MIN_PFD <= PFD) && (MAX_PFD >= PFD) );
-} namespace M = Manifest;
+  static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
+} namespace SZ = Synthesizer;
 class Marker {
   using DBL = double;
   private:
@@ -141,8 +142,9 @@ class Marker {
   virtual ~Marker() {}
   explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, step{_step} {}
   auto freq(DBL Hertz) -> decltype(loci) {    // Hertz is a function scope copy.
-    Hertz = ((M::MIN_FREQ < Hertz) ? ((M::MAX_FREQ > Hertz) ? Hertz : M::MAX_FREQ) : M::MIN_FREQ);
-    loci.divis = u16( floor( log2(M::MAX_VCO / Hertz) ) );
+    Hertz = (Manifest::MIN_FREQ < Hertz) ? Hertz : Manifest::MIN_FREQ;
+    Hertz = (Manifest::MAX_FREQ > Hertz) ? Hertz : Manifest::MAX_FREQ;
+    loci.divis = u16( floor( log2(Manifest::MAX_VCO / Hertz) ) );
     auto fractional_N{ Hertz / pfd * pow(2, loci.divis) };
     loci.whole = u16( floor( fractional_N ) );
     loci.whole = (22 < loci.whole) ? loci.whole : 22;
@@ -159,7 +161,7 @@ class Marker {
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
   auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } };
-Marker m( M::PFD, M::OSC / 5e3 );
+Marker m( Synthesizer::PFD, Synthesizer::OSC / 5e3 );
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
@@ -190,9 +192,9 @@ auto setup() -> void {
   temp.set( S::ldf, LockDetectFunction::fracN );                                           // (12)
   temp.set( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.       (13)
   temp.set( S::dblBfr, E::ON );                                                            // (14)
-  temp.set( S::rCounter, M::REF_COUNTER );                                                    // (15)
-  temp.set( S::refToggler, M::REF_TGLR );                                                     // (16)
-  temp.set( S::refDoubler, M::REF_DBLR );                                                     // (17)
+  temp.set( S::rCounter, Synthesizer::REF_COUNTER );                                       // (15)
+  temp.set( S::refToggler, Synthesizer::REF_TGLR );                                        // (16)
+  temp.set( S::refDoubler, Synthesizer::REF_DBLR );                                        // (17)
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
   temp.set( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                (18)
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
@@ -211,7 +213,7 @@ auto setup() -> void {
   enum ABPnS { nS6fracN = 0, nS3intN };   // AntiBacklash Pulse nanoSeconds
   temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
   enum BandSelMd { matic = 0, progd };
-  temp.set( S::bscMode, (M::MIN_PFD < M::PFD) ? BandSelMd::progd : BandSelMd::matic );     // (25)
+  temp.set( S::bscMode, (MF::MIN_PFD < SZ::PFD) ? BandSelMd::progd : BandSelMd::matic );   // (25)
   constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
   temp.set( S::rfOutPwr, outPower );                                                       // (26)
   temp.set( S::rfSoftEnable, E::ON );                                                      // (27)
@@ -221,15 +223,15 @@ auto setup() -> void {
   temp.set( S::auxFBselect, Feedback );                                                    // (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
-  constexpr auto BscClkDiv = ceil(M::PFD / M::MIN_PFD);
+  constexpr auto BscClkDiv = ceil(Synthesizer::PFD / Manifest::MIN_PFD);
   static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
   temp.set( S::bndSelClkDv, u8(BscClkDiv) );                                               // (33)
   // S::rfDivSelect                                                                           (34)
   temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
-  temp.set( S::ledMode, LEDmode::lockDetect );                             // Ding. Winner!  (36)
-pll = temp;  /* Save and exit scope (discarding temp). */ }
+  temp.set( S::ledMode, LEDmode::lockDetect );                             // Ding. Winner!   (36)
+::pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* Exit setup() */ }
   void pr(const    u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
   void pr(const double& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
@@ -237,7 +239,7 @@ pll = temp;  /* Save and exit scope (discarding temp). */ }
   void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { double f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
-pll.set(m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
+::pll.set(m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
     //  pll.phaseAdjust(E::ON).set(m.phase(270)).flush();  
