@@ -100,6 +100,7 @@ class SpecifiedOverlay {
     set( S::modulus,loci.denom ).set( S::phase,loci.propo );
     set( S::rfDivSelect,loci.divis );
     return *this;  }
+  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
   auto flush() -> void {
     char cx{ 0 };
     switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
@@ -112,8 +113,7 @@ class SpecifiedOverlay {
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) HW::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
-    SPI.endTransaction(); }
-  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }};
+    SPI.endTransaction(); }  };
 const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
 } namespace System { Synthesizer::SpecifiedOverlay pll; }
 namespace Manifest {
@@ -121,17 +121,18 @@ namespace Manifest {
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
 } namespace Synthesizer {
-constexpr    u16  REF_COUNTER{ 8 };                           // Use 80 for 10e6 = OSC.
+constexpr    u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
-  constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // OFF: iff OSC IS a 50% square wave
-constexpr   auto  COMP{ E::ON };                    // OFF: No REF error COMPensation.
+constexpr   auto  REF_TGLR{ E::ON },                // OFF: Only IFF OSC IS a 50% square wave.
+                  REF_DBLR{ REF_TGLR };
+constexpr   auto  COMP{ E::ON };                    // OFF: No OSC error COMPensation.
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
 constexpr   auto  CORRECTION{ -13 * CONSTRAINT };   // Determined by working in reverse, from the
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // value of REF, as measured, below.
-  constexpr auto  OSC{ 25.000000e6 };               // Reference frequency. Yours may be different
-  constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
+constexpr   auto  OSC{ 25e6 };                      // Nominal osc. freq. Yours may be different.
+constexpr   auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // Completeness sake
+constexpr   auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
   static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );}
 class Marker {
   using DBL = double;
@@ -142,8 +143,6 @@ class Marker {
   public:
   virtual ~Marker() {}
   explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, stp{_step} {}
-  auto step() -> decltype(stp) { return stp; } const
-  auto step(const DBL& Hertz) -> void { stp = Hertz; }
   auto freq() -> DBL {return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis);} const
   auto freq(DBL Hertz) -> decltype(loci) {    // Hertz is a function scope copy.
     Hertz = (Manifest::MIN_FREQ < Hertz) ? Hertz : Manifest::MIN_FREQ;
@@ -164,7 +163,8 @@ class Marker {
     auto proportion{ (degrEEs / 360 * (loci.denom - 1)) };
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
-};
+  auto step() -> decltype(stp) { return stp; } const
+  auto step(const DBL& Hertz) -> void { stp = Hertz; } };
 namespace System{ Marker m( Synthesizer::PFD, 5e3 ); }
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
