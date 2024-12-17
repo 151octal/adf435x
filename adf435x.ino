@@ -6,16 +6,17 @@
   https://github.com/hideakitai/ArxContainer */
 #include <ArxContainer.h>
 #include <SPI.h>
+#include <AnalogTouch.h>
 namespace HardWare { /*
-Commented out, but wired:        D4                                      D11       D13 */
-enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
-const auto wait = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
-const auto rfHardEnable = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
-const auto txSPI = [](void *pByte, int nByte) {
-  auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
-  digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
-  while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
-  digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
+  Commented out, but wired:        D4                                      D11       D13 */
+  enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
+  const auto wait = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
+  const auto rfHardEnable = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
+  const auto txSPI = [](void *pByte, int nByte) {
+    auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
+    digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
+    while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
+    digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
 } namespace HW = HardWare;  namespace Synthesis {
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
@@ -55,7 +56,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 } namespace State {
-constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } INIT{ 0,0,0,0,1 };
+  constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } INIT{ 0,0,0,0,1 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 namespace Synthesis {
   /* ©2024 kd9fww */
@@ -71,7 +72,7 @@ class SpecifiedOverlay {
         such, this mechanism adheres to the principle of 'Resource Aquisition Is Initialization',
         via the containing class' constructor with an (embedded, fixed) initializer-list. See:
         "The C++ Programming Language". Fourth Edition. Stroustrup. 2013.
-          §3.2.1.2, §3.2.1.3, §17.3.4 */
+        §3.2.1.2, §3.2.1.3, §17.3.4 */
     u8 durty; SPISettings settings;RegArray reg; } dev =
       { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
       // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
@@ -114,26 +115,25 @@ class SpecifiedOverlay {
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) HW::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
-} final;
-const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
+} final; const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
 } namespace System { Synthesis::SpecifiedOverlay pll; }
 namespace Manifest {
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
 } namespace Synthesis {
-constexpr    u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
+; constexpr  u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
-constexpr   auto  REF_TGLR{ E::ON },                // OFF: Only IFF OSC IS a 50% square wave.
-                  REF_DBLR{ REF_TGLR };
-constexpr   auto  COMP{ E::ON };                    // OFF: No OSC error COMPensation.
+  constexpr auto  REF_TGLR{ E::ON };                // OFF: Only IFF OSC IS a 50% square wave.
+  constexpr auto  REF_DBLR{ REF_TGLR };
+  constexpr auto  COMP{ E::ON };                    // OFF: No OSC error COMPensation.
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
-constexpr   auto  CORRECTION{ -13 * CONSTRAINT };   // Determined by working in reverse, from the
+  constexpr auto  CORRECTION{ -13 * CONSTRAINT };   // Determined by working in reverse, from the
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // value of REF, as measured, below.
-constexpr   auto  OSC{ 25e6 };                      // Nominal osc. freq. Yours may be different.
-constexpr   auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
+  constexpr auto  OSC{ 25e6 };                      // Nominal osc. freq. Yours may be different.
+  constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-constexpr   auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
+  constexpr   auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
   static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );}
 class Marker {
   using DBL = double;
@@ -165,8 +165,7 @@ class Marker {
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
   auto step() -> decltype(stp) { return stp; } const
-  auto step(const DBL& Hertz) -> void { stp = Hertz; }
-};
+  auto step(const DBL& Hertz) -> void { stp = Hertz; }  };
 namespace System{ Marker m( Synthesis::PFD, 5e3 ); }
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
@@ -240,22 +239,36 @@ auto setup() -> void {
   temp.set( S::ledMode, LEDmode::lockDetect );                             // Ding. Winner!   (36)
 System::pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* Exit setup() */ }
-  void pr(const    u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
-  void pr(const double& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
-  void pl(const    u32& arg, int num = DEC) { Serial.println(arg,num); };
-  void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
+  void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
+  void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num); Serial.print(' '); };
+  void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
+  void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
+  void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
+  void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
+  void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void { double f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
-using namespace System;
-pll.set(m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
-  /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
-      It locks.                   I think it is correct.                  Use it as follows. */
-    //  pll.phaseAdjust(E::ON).set(m.phase(270)).flush();  
-        //  pr(m.phase()); pl(m.phase()-270);
-while(1); }    /* { // Alternate loop(): (up-dn frequency sweep)
-    auto df{ 5e3 * 1 }, f{ 34.5e6 - df };
-    pll.set( m.freq(f += df) ).flush(); wait();
-    pr( m.freq() ); pl( m.freq() - f );
-    if( (34.625e6 <= f) || (MIN_FREQ >= f) ) df = -df;
-    delay(3000L); } */
-    /*  kd9fww. Known for lotsa things. 'Gotcha' code isn't one of them. */
+namespace Interface {
+  enum class PIN : u8 { TP0 = A0 };
+  constexpr auto factor{ 2 };
+  class Touch {
+    private:
+      PIN which;
+      size_t Nsamples;
+      u16 offset, ref{ 0xffff }, adc{};
+    public:
+    Touch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n }, offset{ factor } {}
+    virtual ~Touch() {}
+    auto cal() -> void {
+      adc = analogTouchRead(static_cast<u8>(which), Nsamples);
+      ;    if (adc < (ref >> offset)) ref = (adc << offset);
+      else if (adc > (ref >> offset)) ref++; }
+        // auto dump() -> void { if( state() ) pr('1'); else pr('0'); pr(ref); pl(adc); }
+    auto state() -> bool { cal(); return ((adc - (ref >> offset)) > 40) ? true : false; }  };
+} auto loop() -> void {//  Serial.begin(1000000L); delay(1000L);
+    using namespace System;
+    auto f0{ 65.4321e6 };
+    pll.set(m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
+    //pll.phaseAdjust(E::ON).set(m.phase(270)).flush();// pr(m.phase()); pl(m.phase()-270);
+    using namespace Interface;
+    //Touch t(PIN::TP0);
+    while(1) { } } // kd9fww
