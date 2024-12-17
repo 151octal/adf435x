@@ -15,7 +15,7 @@ const auto txSPI = [](void *pByte, int nByte) {
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
   while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
   digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
-} namespace HW = HardWare;
+} namespace HW = HardWare;  namespace Synthesizer {
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -32,7 +32,6 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     rfDivSelect,  rfFBselect,   ledMode,
     _end
   };  using S = Symbol;
-namespace Synthesizer {
 constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
   Human deduced via inspection.
     N:      Number of (32 bit) "registers": 6
