@@ -2,8 +2,9 @@
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
-  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
-#include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
+  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
+  https://github.com/hideakitai/ArxContainer */
+#include <ArxContainer.h>
 #include <SPI.h>
 namespace HardWare { /*
 Commented out, but wired:        D4                                      D11       D13 */
@@ -234,7 +235,7 @@ auto setup() -> void {
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp.set( S::ledMode, LEDmode::lockDetect );                             // Ding. Winner!   (36)
-  System::pll = temp;  /* Save and exit scope (discarding temp). */ }
+System::pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* Exit setup() */ }
   void pr(const    u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
   void pr(const double& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
