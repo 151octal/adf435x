@@ -61,28 +61,29 @@ namespace Synthesizer {
   /* ©2024 kd9fww */
 class SpecifiedOverlay {
   private:
-  static const LayoutSpecification* const layoutSpec;
-  State::Parameters mem{ State::initSP };
-  struct Device {
-    static constexpr auto N{ 6 };
-    using RegArray = std::array<u32, N>; /*
-      With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. These
-      regions become 'invariants' by not providing fields for them in the Specification. As such,
-      this mechanism adheres to the principle of 'Resource Aquisition Is Initialization' (RAII),
-      via the containing class' constructor with an (embedded, fixed) initializer-list. See: "The
-      C++ Programming Language". Fourth Edition. Stroustrup. 2013. §3.2.1.2, §3.2.1.3, §17.3.4 */
-  u8 durty; SPISettings settings;RegArray reg; } dev =
-    { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
-    // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
-  auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
-    static constexpr u32 MASK[] = {
-      0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
-    auto pSpec = &layoutSpec[ static_cast<const u8>( symbol ) ];
-    dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
-    dev.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // Then, on.
-    static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
-    dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
-    return *this; }
+    static const LayoutSpecification* const layoutSpec;
+    State::Parameters mem{ State::initSP };
+    struct Device {
+      static constexpr auto N{ 6 };
+      using RegArray = std::array<u32, N>; /*
+        With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. These
+        regions become 'invariants' by not providing fields for them in the Specification. As
+        such, this mechanism adheres to the principle of 'Resource Aquisition Is Initialization',
+        via the containing class' constructor with an (embedded, fixed) initializer-list. See:
+        "The C++ Programming Language". Fourth Edition. Stroustrup. 2013.
+          §3.2.1.2, §3.2.1.3, §17.3.4 */
+    u8 durty; SPISettings settings;RegArray reg; } dev =
+      { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
+      // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
+    auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
+      static constexpr u32 MASK[] = {
+        0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
+      auto pSpec = &layoutSpec[ static_cast<const u8>( symbol ) ];
+      dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
+      dev.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // Then, on.
+      static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
+      dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
+      return *this; }
   public:
     // wrapper for raw(). usage: object.set( symA,valA ).set( symB,valB )
   auto set( const S& sym,const u16& val ) -> decltype(*this) {
@@ -112,8 +113,7 @@ class SpecifiedOverlay {
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) HW::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
-  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
-};
+  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }};
 const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
 } namespace System { Synthesizer::SpecifiedOverlay pll; }
 namespace Manifest {
@@ -121,28 +121,29 @@ namespace Manifest {
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
 } namespace Synthesizer {
-constexpr    u16  REF_COUNTER{ 8 };
+constexpr    u16  REF_COUNTER{ 8 };                           // Use 80 for 10e6 = OSC.
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
   constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // OFF: iff OSC IS a 50% square wave
-constexpr   auto  FLAG{ E::ON };                    // OFF: No REF correction.
+constexpr   auto  COMP{ E::ON };                    // OFF: No REF error COMPensation.
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
 constexpr   auto  CORRECTION{ -13 * CONSTRAINT };   // Determined by working in reverse, from the
-  constexpr auto  REF_ERROR{ (FLAG) * CORRECTION }; // value of REF, as measured, below.
+  constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // value of REF, as measured, below.
   constexpr auto  OSC{ 25.000000e6 };               // Reference frequency. Yours may be different
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // Completeness sake
-  static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
-}
+  static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );}
 class Marker {
   using DBL = double;
   private:
-  DBL pfd, step;
-  State::Parameters loci{ State::initSP };
+    DBL pfd, stp;
+    State::Parameters loci{ State::initSP };
+    static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
   public:
-  static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
   virtual ~Marker() {}
-  explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, step{_step} {}
+  explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, stp{_step} {}
+  auto step(const DBL& Hertz) -> void { stp = Hertz; }
+  auto step() -> decltype(stp) { return stp; }
   auto freq(DBL Hertz) -> decltype(loci) {    // Hertz is a function scope copy.
     Hertz = (Manifest::MIN_FREQ < Hertz) ? Hertz : Manifest::MIN_FREQ;
     Hertz = (Manifest::MAX_FREQ > Hertz) ? Hertz : Manifest::MAX_FREQ;
@@ -150,7 +151,7 @@ class Marker {
     auto fractional_N{ Hertz / pfd * pow(2, loci.divis) };
     loci.whole = u16( floor( fractional_N ) );
     loci.whole = (22 < loci.whole) ? loci.whole : 22;
-    loci.denom = u16( round( pfd / step ) );
+    loci.denom = u16( round( pfd / stp ) );
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
   auto freq() -> DBL { return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis); };
@@ -162,9 +163,8 @@ class Marker {
     auto proportion{ (degrEEs / 360 * (loci.denom - 1)) };
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
-  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; }
-};
-namespace System{ Marker m( Synthesizer::PFD, Synthesizer::OSC / 5e3 ); }
+  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; }};
+namespace System{ Marker m( Synthesizer::PFD, 5e3 ); }
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
