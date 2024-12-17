@@ -55,14 +55,14 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 } namespace State {
-constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } initSP{ 0,0,0,0,1 };
+constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } INIT{ 0,0,0,0,1 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 namespace Synthesizer {
   /* ©2024 kd9fww */
 class SpecifiedOverlay {
   private:
     static const LayoutSpecification* const layoutSpec;
-    State::Parameters mem{ State::initSP };
+    State::Parameters mem{ State::INIT };
     struct Device {
       static constexpr auto N{ 6 };
       using RegArray = std::array<u32, N>; /*
@@ -137,13 +137,14 @@ class Marker {
   using DBL = double;
   private:
     DBL pfd, stp;
-    State::Parameters loci{ State::initSP };
+    State::Parameters loci{ State::INIT };
     static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
   public:
   virtual ~Marker() {}
   explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, stp{_step} {}
+  auto step() -> decltype(stp) { return stp; } const
   auto step(const DBL& Hertz) -> void { stp = Hertz; }
-  auto step() -> decltype(stp) { return stp; }
+  auto freq() -> DBL {return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis);} const
   auto freq(DBL Hertz) -> decltype(loci) {    // Hertz is a function scope copy.
     Hertz = (Manifest::MIN_FREQ < Hertz) ? Hertz : Manifest::MIN_FREQ;
     Hertz = (Manifest::MAX_FREQ > Hertz) ? Hertz : Manifest::MAX_FREQ;
@@ -154,16 +155,16 @@ class Marker {
     loci.denom = u16( round( pfd / stp ) );
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
-  auto freq() -> DBL { return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis); };
     /* //#ifdef degrees
-       //#undef degrees                         // "Good grief, Charlie Brown." C.M. Schulz.
+       //#undef degrees                       // "Good grief, Charlie Brown." C.M. Schulz.
        //#endif  */
+  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } const
   auto phase(DBL degrEEs) -> decltype(loci) { // (degrEEs / 360) = (propo / (denom-1))
     degrEEs = { (360 < degrEEs) ? (360-degrEEs) : (0 > degrEEs) ? (360 + degrEEs) : degrEEs };
     auto proportion{ (degrEEs / 360 * (loci.denom - 1)) };
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
-  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; }};
+};
 namespace System{ Marker m( Synthesizer::PFD, 5e3 ); }
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
