@@ -3,7 +3,8 @@
   https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
-  https://github.com/hideakitai/ArxContainer */
+  https://github.com/hideakitai/ArxContainer
+  https://github.com/NicoHood/AnalogTouch */
 #include <ArxContainer.h>
 #include <SPI.h>
 #include <AnalogTouch.h>
@@ -241,10 +242,10 @@ System::pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* Exit setup() */ }
   void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
   void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num); Serial.print(' '); };
-  void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
-  void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
   void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
+  void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
   void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
+  void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
   void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 namespace Interface {
