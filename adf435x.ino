@@ -5,8 +5,8 @@
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
 #include <ArxContainer.h>  // https://github.com/hideakitai/ArxContainer
 #include <SPI.h>
-    namespace HardWare { /*
-  Commented out, but wired:      D4                                      D11       D13 */
+namespace HardWare { /*
+Commented out, but wired:        D4                                      D11       D13 */
 enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
 const auto wait = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
 const auto rfHardEnable = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
@@ -32,6 +32,7 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     rfDivSelect,  rfFBselect,   ledMode,
     _end
   };  using S = Symbol;
+namespace Synthesizer {
 constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
   Human deduced via inspection.
     N:      Number of (32 bit) "registers": 6
@@ -53,14 +54,15 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-  using LSpec = LayoutSpecification;
-constexpr struct StateParameters { u16 divis, whole, denom, numer, propo; } initSP{ 0,0,0,0,1 };
-enum Enable { OFF = 0, ON = 1 };  using E = Enable;
+} namespace State {
+constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } initSP{ 0,0,0,0,1 };
+} enum Enable { OFF = 0, ON = 1 };  using E = Enable;
+namespace Synthesizer {
   /* ©2024 kd9fww */
 class SpecifiedOverlay {
   private:
-  static const LSpec* const layoutSpec;
-  StateParameters mem{ initSP };
+  static const LayoutSpecification* const layoutSpec;
+  State::Parameters mem{ State::initSP };
   struct Device {
     static constexpr auto N{ 6 };
     using RegArray = std::array<u32, N>; /*
@@ -92,7 +94,7 @@ class SpecifiedOverlay {
       case S::modulus:      if(val != mem.denom) return raw( sym,mem.denom = val ); break;
       case S::rfDivSelect:  if(val != mem.divis) return raw( sym,mem.divis = val ); break; 
      }  }
-  auto set( const StateParameters& loci ) -> decltype(*this) {
+  auto set( const State::Parameters& loci ) -> decltype(*this) {
     set( S::fraction,loci.numer ).set( S::integer,loci.whole );
     set( S::modulus,loci.denom ).set( S::phase,loci.propo );
     set( S::rfDivSelect,loci.divis );
@@ -110,33 +112,33 @@ class SpecifiedOverlay {
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) HW::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
-  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; } };
-  const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
-    /* ©2024 kd9fww */
-SpecifiedOverlay pll;
-  namespace Manifest {
+  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
+};
+const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
+} namespace System { Synthesizer::SpecifiedOverlay pll; }
+namespace Manifest {
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-} namespace MF = Manifest; namespace Synthesizer {
-  constexpr    u16  REF_COUNTER{ 8 };
+} namespace Synthesizer {
+constexpr    u16  REF_COUNTER{ 8 };
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
   constexpr auto  REF_TGLR{ E::ON }, REF_DBLR{ REF_TGLR };    // OFF: iff OSC IS a 50% square wave
-  constexpr auto  FLAG{ E::ON };                    // OFF: No REF correction.
+constexpr   auto  FLAG{ E::ON };                    // OFF: No REF correction.
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
-  constexpr auto  CORRECTION{ -13 * CONSTRAINT };   // Arrived at by in reverse, from the REF
-  constexpr auto  REF_ERROR{ (FLAG) * CORRECTION }; // value measured, below.
+constexpr   auto  CORRECTION{ -13 * CONSTRAINT };   // Determined by working in reverse, from the
+  constexpr auto  REF_ERROR{ (FLAG) * CORRECTION }; // value of REF, as measured, below.
   constexpr auto  OSC{ 25.000000e6 };               // Reference frequency. Yours may be different
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;  // Completeness sake
   static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
-} namespace SZ = Synthesizer;
+}
 class Marker {
   using DBL = double;
   private:
   DBL pfd, step;
-  StateParameters loci{ initSP };
+  State::Parameters loci{ State::initSP };
   public:
   static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
   virtual ~Marker() {}
@@ -160,8 +162,9 @@ class Marker {
     auto proportion{ (degrEEs / 360 * (loci.denom - 1)) };
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
-  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } };
-Marker m( Synthesizer::PFD, Synthesizer::OSC / 5e3 );
+  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; }
+};
+namespace System{ Marker m( Synthesizer::PFD, Synthesizer::OSC / 5e3 ); }
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
@@ -173,7 +176,7 @@ auto setup() -> void {
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
   pinMode(static_cast<u8>(HW::PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
-{ /* Enter another scope. */ SpecifiedOverlay temp; /*
+{ /* Enter another scope. */  using namespace Synthesizer;  SpecifiedOverlay temp; /*
   Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
   m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
@@ -212,8 +215,9 @@ auto setup() -> void {
   temp.set( S::chrgCancel, E::OFF );                                                       // (23)
   enum ABPnS { nS6fracN = 0, nS3intN };   // AntiBacklash Pulse nanoSeconds
   temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
-  enum BandSelMd { matic = 0, progd };
-  temp.set( S::bscMode, (MF::MIN_PFD < SZ::PFD) ? BandSelMd::progd : BandSelMd::matic );   // (25)
+  enum BandSelMd { automatic = 0, programmed };
+  temp.set( S::bscMode, 
+  (Manifest::MIN_PFD < Synthesizer::PFD) ? BandSelMd::programmed : BandSelMd::automatic ); // (25)
   constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
   temp.set( S::rfOutPwr, outPower );                                                       // (26)
   temp.set( S::rfSoftEnable, E::ON );                                                      // (27)
@@ -231,7 +235,7 @@ auto setup() -> void {
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp.set( S::ledMode, LEDmode::lockDetect );                             // Ding. Winner!   (36)
-::pll = temp;  /* Save and exit scope (discarding temp). */ }
+  System::pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* Exit setup() */ }
   void pr(const    u32& arg, int num = DEC) { Serial.print(arg,num); Serial.print(' '); };
   void pr(const double& arg, int num = 0  ) { Serial.print(arg,num); Serial.print(' '); };
@@ -239,7 +243,8 @@ auto setup() -> void {
   void pl(const double& arg, int num = 0  ) { Serial.println(arg,num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { double f0{ 65.4321e6 };//  Serial.begin(1000000L); delay(1000L);
-::pll.set(::m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
+using namespace System;
+pll.set(m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
   /*  Todo: A means to (physically) measure phase adjustment (with one pll, only). 
       It locks.                   I think it is correct.                  Use it as follows. */
     //  pll.phaseAdjust(E::ON).set(m.phase(270)).flush();  
