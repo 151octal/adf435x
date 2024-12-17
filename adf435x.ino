@@ -16,7 +16,7 @@ const auto txSPI = [](void *pByte, int nByte) {
   digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
   while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
   digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
-} namespace HW = HardWare;  namespace Synthesizer {
+} namespace HW = HardWare;  namespace Synthesis {
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -57,7 +57,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
 } namespace State {
 constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } INIT{ 0,0,0,0,1 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-namespace Synthesizer {
+namespace Synthesis {
   /* ©2024 kd9fww */
 class SpecifiedOverlay {
   private:
@@ -116,12 +116,12 @@ class SpecifiedOverlay {
     SPI.endTransaction(); }
 } final;
 const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
-} namespace System { Synthesizer::SpecifiedOverlay pll; }
+} namespace System { Synthesis::SpecifiedOverlay pll; }
 namespace Manifest {
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-} namespace Synthesizer {
+} namespace Synthesis {
 constexpr    u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
 constexpr   auto  REF_TGLR{ E::ON },                // OFF: Only IFF OSC IS a 50% square wave.
@@ -167,7 +167,7 @@ class Marker {
   auto step() -> decltype(stp) { return stp; } const
   auto step(const DBL& Hertz) -> void { stp = Hertz; }
 };
-namespace System{ Marker m( Synthesizer::PFD, 5e3 ); }
+namespace System{ Marker m( Synthesis::PFD, 5e3 ); }
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
@@ -179,7 +179,7 @@ auto setup() -> void {
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
   pinMode(static_cast<u8>(HW::PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
-{ /* Enter another scope. */  using namespace Synthesizer;  SpecifiedOverlay temp; /*
+{ /* Enter another scope. */  using namespace Synthesis;  SpecifiedOverlay temp; /*
   Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
   m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
@@ -198,9 +198,9 @@ auto setup() -> void {
   temp.set( S::ldf, LockDetectFunction::fracN );                                           // (12)
   temp.set( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.       (13)
   temp.set( S::dblBfr, E::ON );                                                            // (14)
-  temp.set( S::rCounter, Synthesizer::REF_COUNTER );                                       // (15)
-  temp.set( S::refToggler, Synthesizer::REF_TGLR );                                        // (16)
-  temp.set( S::refDoubler, Synthesizer::REF_DBLR );                                        // (17)
+  temp.set( S::rCounter, Synthesis::REF_COUNTER );                                       // (15)
+  temp.set( S::refToggler, Synthesis::REF_TGLR );                                        // (16)
+  temp.set( S::refDoubler, Synthesis::REF_DBLR );                                        // (17)
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
   temp.set( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                (18)
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
@@ -218,9 +218,9 @@ auto setup() -> void {
   temp.set( S::chrgCancel, E::OFF );                                                       // (23)
   enum ABPnS { nS6fracN = 0, nS3intN };   // AntiBacklash Pulse nanoSeconds
   temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
-  enum BandSelMd { automatic = 0, programmed };
-  temp.set( S::bscMode, 
-  (Manifest::MIN_PFD < Synthesizer::PFD) ? BandSelMd::programmed : BandSelMd::automatic ); // (25)
+  enum BndSelClkMd { automatic = 0, programmed };
+  temp.set( S::bscMode,
+  (Manifest::MIN_PFD < Synthesis::PFD) ? BndSelClkMd::programmed : BndSelClkMd::automatic);// (25)
   constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
   temp.set( S::rfOutPwr, outPower );                                                       // (26)
   temp.set( S::rfSoftEnable, E::ON );                                                      // (27)
@@ -230,7 +230,7 @@ auto setup() -> void {
   temp.set( S::auxFBselect, Feedback );                                                    // (30)
   temp.set( S::muteTillLD, E::ON );                                                        // (31)
   temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
-  constexpr auto BscClkDiv = ceil(Synthesizer::PFD / Manifest::MIN_PFD);
+  constexpr auto BscClkDiv = ceil(Synthesis::PFD / Manifest::MIN_PFD);
   static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
   temp.set( S::bndSelClkDv, u8(BscClkDiv) );                                               // (33)
   // S::rfDivSelect                                                                           (34)
