@@ -113,7 +113,8 @@ class SpecifiedOverlay {
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) HW::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
-    SPI.endTransaction(); }  };
+    SPI.endTransaction(); }
+} final;
 const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
 } namespace System { Synthesizer::SpecifiedOverlay pll; }
 namespace Manifest {
@@ -164,7 +165,8 @@ class Marker {
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
   auto step() -> decltype(stp) { return stp; } const
-  auto step(const DBL& Hertz) -> void { stp = Hertz; } };
+  auto step(const DBL& Hertz) -> void { stp = Hertz; }
+};
 namespace System{ Marker m( Synthesizer::PFD, 5e3 ); }
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
