@@ -116,8 +116,7 @@ class Overlay {
     for(/* empty */; dev.N != cx; ++cx) System::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
   auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
-   } final; const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
-}// namespace System {     /* ©2024 kd9fww */ Synthesis::Overlay pll; }
+   } final; const LayoutSpecification* const Overlay::layoutSpec{ ADF435x }; }
 namespace Manifest {
     constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
     constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
@@ -175,7 +174,7 @@ using namespace System;
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
   SPI.begin();
-    /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
+  /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
   rfHardEnable( E::ON );                      // For OnOffKeying (OOK) start with E::OFF.
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
@@ -209,11 +208,11 @@ class AnalogTouch {
     const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  };}
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void {
-  Synthesis::Overlay pll;
   using namespace Synthesis;
-{ /* Enter another scope. */  Overlay temp; /*
+  Overlay pll;
+  { /* Enter another scope. */  Overlay temp; /*
   Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
-  m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
+  marker.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp( S::phase, 1);                                // Adjust phase AFTER loop lock.         (4)
   temp( S::phAdj, E::OFF );                                                                // (5)
@@ -270,14 +269,13 @@ auto loop() -> void {
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
-; pll = temp;  /* Save and exit scope (discarding temp). */ }
+; pll = temp; } /* Save and exit scope (discarding temp). */
   Serial.begin(1000000L); delay(1000L);
   using namespace System;
   Marker marker( Synthesis::PFD, 5e3 );
   auto ff{ 65.4321e6 }, df{ 5e3 };
   pll(marker( ff )).flush(); wait(); pr(' '); pl(marker());
-  //pll(marker.phase(270)).phaseAdjust(E::ON).flush();// pl(m.phase());
-  //using namespace IO;
+  //pll(marker.phase(270)).phaseAdjust(E::ON).flush();// pl(marker.phase());
   IO::AnalogTouch       up(IO::PIN::UP), down(IO::PIN::DOWN);
   IO::AnalogTouch right(IO::PIN::RIGHT), left(IO::PIN::LEFT);
 ; while(1) {
