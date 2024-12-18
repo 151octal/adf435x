@@ -59,7 +59,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
     } namespace State {
   constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } INIT{ 0,0,0,0,1 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-    namespace Synthesis {
+namespace Synthesis {
   /* ©2024 kd9fww */
 class Overlay {
   private:
@@ -116,15 +116,15 @@ class Overlay {
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) System::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
-} final; const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
-  } namespace System {
-  /* ©2024 kd9fww */
+   } final; const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
+    } namespace System {
+     /* ©2024 kd9fww */
 Synthesis::Overlay pll; }
-    namespace Manifest {
-  constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
-  constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
-  constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-} namespace Synthesis {
+  namespace Manifest {
+    constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
+    constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
+    constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
+    } namespace Synthesis {
 ; constexpr  u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
   constexpr auto  REF_TGLR{ E::ON };                // OFF: Only IFF OSC IS a 50% square wave.
@@ -253,9 +253,9 @@ using namespace Synthesis;  Overlay temp; /*
     void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
     void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
     void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
-namespace Interface {
+  namespace Interface {
   enum class PIN : u8 { UP = A0, DN = A7 };
-  class AnalogTouch {
+class AnalogTouch {
     private:
       static constexpr auto Gain{ 2 };
       PIN which;
