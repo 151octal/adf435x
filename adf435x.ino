@@ -8,9 +8,18 @@
 #include <ArxContainer.h>
 #include <SPI.h>
 #include <AnalogTouch.h>
-  namespace System { /*
-  Commented out, but wired:        D4                                      D11       D13 */
-  enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
+  // Shorthand for debugging with Serial.print()
+  void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
+  void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num);Serial.print(' ');};
+  void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
+  void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
+  void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
+  void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
+  void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
+namespace System {
+  // Commented out, but wired:  D4
+;  enum  PIN : u8 {     /* MUX = 4, */ PDR = 6,  LD = 7,    LE = 10,  // pll
+                         LEFT = A0,  DOWN = A1, UP = A2, RIGHT = A3   /* AnalogTouch*/ };
   const auto wait = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
   const auto rfHardEnable = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
   const auto txSPI = [](void *pByte, int nByte) {
@@ -56,8 +65,8 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-} namespace State {
-  constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } INIT{ 0,0,0,0,1 };
+} namespace State { struct Parameters { u16 divis, whole, denom, numer, propo; };
+  constexpr Parameters INIT{ 0,0,0,0,1 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 namespace Synthesis {
   /* ©2024 kd9fww */
@@ -78,7 +87,7 @@ class Overlay {
       { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
       // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
     auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
-      static constexpr u32 MASK[] = {
+      static constexpr u32 MASK[] = { // Speed has priority over size. (exp2() - 1) <- Slow.
         0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
       auto pSpec = &layoutSpec[ static_cast<const u8>( symbol ) ];
       dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
@@ -87,7 +96,7 @@ class Overlay {
       dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
       return *this; }
   public:
-    // wrapper for raw(). usage: object.operator()( symA,valA ).operator()( symB,valB )
+    // wrapper for raw(). usage: object( symA,valA ).operator()( symB,valB ) ••• ad infinitum
   auto operator()( const S& sym,const u16& val ) -> decltype(*this) {
     switch(sym) {
       default: return raw( sym,val );
@@ -95,8 +104,8 @@ class Overlay {
       case S::integer:      if(val != mem.whole) return raw( sym,mem.whole = val ); break;
       case S::phase:        if(val != mem.propo) return raw( sym,mem.propo = val ); break;
       case S::modulus:      if(val != mem.denom) return raw( sym,mem.denom = val ); break;
-      case S::rfDivSelect:  if(val != mem.divis) return raw( sym,mem.divis = val ); break; 
-     }  }
+      case S::rfDivSelect:  if(val != mem.divis) return raw( sym,mem.divis = val ); break; } }
+    // usage: object( loci ).operator()( loci ) ••• ad infinitum
   auto operator()( const State::Parameters& loci ) -> decltype(*this) {
     operator()( S::fraction,loci.numer ).operator()( S::integer,loci.whole );
     operator()( S::modulus,loci.denom ).operator()( S::phase,loci.propo );
@@ -116,9 +125,11 @@ class Overlay {
     for(/* empty */; dev.N != cx; ++cx) System::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
   auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
-   } final; const LayoutSpecification* const Overlay::layoutSpec{ ADF435x }; }
-namespace Manifest {
-    constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
+  } final; /* ©2024 kd9fww */
+const LayoutSpecification* const Overlay::layoutSpec{ ADF435x }; 
+} namespace Manifest {
+    // PFD: Phase Frequency Detector (All) in units of Hertz.
+    constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest fact ...
     constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
     constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
 } namespace Synthesis {
@@ -126,18 +137,17 @@ namespace Manifest {
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
   constexpr auto  REF_TGLR{ E::ON };                // OFF: Only IFF OSC IS a 50% square wave.
   constexpr auto  REF_DBLR{ REF_TGLR };
-  constexpr auto  COMP{ E::ON };                    // OFF: No OSC error COMPensation.
+  constexpr auto  COMP{ E::ON };                    // OFF: No OSCillator error COMPensation.
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
   constexpr auto  CORRECTION{ -13 * CONSTRAINT };   // Determined by working in reverse, from the
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // value of REF, as measured, below.
   constexpr auto  OSC{ 25e6 };                      // Nominal osc. freq. Yours may be different.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-  constexpr   auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
+  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
+  // Important: REF_ERROR is propagated via it's inclusion in the calculation of PFD.
   static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
-    }
-    /* ©2024 kd9fww */
-class Marker {
+} class Marker {
   using DBL = double;
   private:
     DBL pfd, stp;
@@ -145,10 +155,11 @@ class Marker {
     static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
   public:
   virtual ~Marker() {}
-  explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, stp{_step} {}
+  explicit Marker( const DBL& actual_pfd, const DBL& desired_step )
+  : pfd{ actual_pfd }, stp{ desired_step } {}
   const auto operator()() -> DBL {
     return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.divis); } const
-  auto operator()(DBL Hertz) -> decltype(loci) {    // Hertz is a function scope copy.
+  auto operator()(DBL Hertz) -> decltype(loci) {  // Hertz is a function scope copy.
     Hertz = (Manifest::MIN_FREQ < Hertz) ? Hertz : Manifest::MIN_FREQ;
     Hertz = (Manifest::MAX_FREQ > Hertz) ? Hertz : Manifest::MAX_FREQ;
     loci.divis = u16( floor( log2(Manifest::MAX_VCO / Hertz) ) );
@@ -158,21 +169,21 @@ class Marker {
     loci.denom = u16( round( pfd / stp ) );
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
-    /* //#ifdef degrees
-       //#undef degrees                       // "Good grief, Charlie Brown." C.M. Schulz.
-       //#endif  */
   const auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } const
-  auto phase(DBL degrEEs) -> decltype(loci) {       // (degrEEs / 360) = (propo / (denom-1))
+    #ifdef degrees
+    #define execrable_macro_name_encountered
+    #endif  // "What a bummer, eh?" Ian Anderson. "Good grief, Charlie Brown." C.M. Schulz.
+  auto phase(DBL degrEEs) -> decltype(loci) {     // (degrEEs / 360) = (propo / (denom-1))
     degrEEs = { (360 < degrEEs) ? (360-degrEEs) : (0 > degrEEs) ? (360 + degrEEs) : degrEEs };
     auto proportion{ (degrEEs / 360 * (loci.denom - 1)) };
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
   auto step() -> decltype(stp) { return stp; } const
   auto step(const DBL& Hertz) -> void { stp = Hertz; } };
-using namespace System;
     /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
+  using namespace System;
   SPI.begin();
   /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
@@ -180,38 +191,30 @@ auto setup() -> void {
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
-  pinMode(static_cast<u8>(PIN::LD), INPUT);   /* Lock detect. */ }
-    void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
-    void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num);Serial.print(' ');};
-    void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
-    void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
-    void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
-    void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
-    void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
-namespace IO {
-  enum class PIN : u8 { LEFT = A0, DOWN = A1, UP = A2, RIGHT = A3 };
+  pinMode(static_cast<u8>(PIN::LD), INPUT);   /* Lock detect. */
+} namespace IO {
 class AnalogTouch {
-    private:
-      static constexpr auto Gain{ 2 };
-      PIN which;
-      size_t Nsamples;
-      u16 offset{ Gain }, ref{ 0xffff }, adc{};
-        // Stolen from the AnalogTouch example.
-      auto cal() -> void { 
-        adc = analogTouchRead(static_cast<u8>(which), Nsamples);
-        ;    if (adc < (ref >> offset)) ref = (adc << offset);
-        else if (adc > (ref >> offset)) ref++; }
-    public:
-    AnalogTouch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n } {}
-    virtual ~AnalogTouch() {}
+  private:
+    static constexpr auto Gain{ 2 };
+    System::PIN pin;
+    size_t Nsamples;
+    u16 offset{ Gain }, ref{ 0xffff }, adc{};
       // Stolen from the AnalogTouch example.
-    const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  };}
+    auto cal() -> void { 
+      adc = analogTouchRead(static_cast<u8>(pin), Nsamples);
+      ;    if (adc < (ref >> offset)) ref = (adc << offset);
+      else if (adc > (ref >> offset)) ref++; }
+  public:
+  AnalogTouch(System::PIN p, size_t n = 1) : pin{ p }, Nsamples{ n } {}
+  virtual ~AnalogTouch() {}
+    // Stolen from the AnalogTouch example.
+  const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  }; }
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void {
+  Serial.begin(1000000L); delay(1000L);
   using namespace Synthesis;
-  Overlay pll;
-  { /* Enter another scope. */  Overlay temp; /*
-  Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
+; Overlay pll;  { /* Enter another scope. */ Overlay temp; /*
+  Quantiy S::_end calls of set() are required, in any order. Four set() calls are made for each
   marker.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp( S::phase, 1);                                // Adjust phase AFTER loop lock.         (4)
@@ -269,15 +272,13 @@ auto loop() -> void {
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
-; pll = temp; } /* Save and exit scope (discarding temp). */
-  Serial.begin(1000000L); delay(1000L);
+; pll = temp;   } /* Save and exit scope (discarding temp). */
   using namespace System;
   Marker marker( Synthesis::PFD, 5e3 );
   auto ff{ 65.4321e6 }, df{ 5e3 };
   pll(marker( ff )).flush(); wait(); pr(' '); pl(marker());
   //pll(marker.phase(270)).phaseAdjust(E::ON).flush();// pl(marker.phase());
-  IO::AnalogTouch       up(IO::PIN::UP), down(IO::PIN::DOWN);
-  IO::AnalogTouch right(IO::PIN::RIGHT), left(IO::PIN::LEFT);
+  IO::AnalogTouch up(PIN::UP), down(PIN::DOWN), right(PIN::RIGHT), left(PIN::LEFT);
 ; while(1) {
     delay(100);
     if(  up()) { pll(marker( ff+=df )).flush(); wait(); pr('U'); pl(marker()); }
