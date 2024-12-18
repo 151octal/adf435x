@@ -18,7 +18,7 @@
     digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
-      } namespace Synthesis {
+} namespace Synthesis {
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -56,7 +56,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-    } namespace State {
+} namespace State {
   constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } INIT{ 0,0,0,0,1 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 namespace Synthesis {
@@ -102,7 +102,6 @@ class Overlay {
     operator()( S::modulus,loci.denom ).operator()( S::phase,loci.propo );
     operator()( S::rfDivSelect,loci.divis );
     return *this;  }
-  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
   auto flush() -> void {
     char cx{ 0 };
     switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
@@ -116,15 +115,16 @@ class Overlay {
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) System::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
+  auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
    } final; const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
-    } namespace System {
+} namespace System {
      /* ©2024 kd9fww */
 Synthesis::Overlay pll; }
-  namespace Manifest {
+namespace Manifest {
     constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
     constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
     constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-    } namespace Synthesis {
+} namespace Synthesis {
 ; constexpr  u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
   constexpr auto  REF_TGLR{ E::ON };                // OFF: Only IFF OSC IS a 50% square wave.
@@ -253,7 +253,7 @@ using namespace Synthesis;  Overlay temp; /*
     void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
     void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
     void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
-  namespace Interface {
+namespace Interface {
   enum class PIN : u8 { UP = A0, DN = A7 };
 class AnalogTouch {
     private:
