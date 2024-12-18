@@ -168,9 +168,8 @@ class Marker {
     return loci;  }
   auto step() -> decltype(stp) { return stp; } const
   auto step(const DBL& Hertz) -> void { stp = Hertz; } };
-namespace System{ Marker m( Synthesis::PFD, 5e3 ); }
-  /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
-     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
+    /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
+    until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
   SPI.begin();
   pinMode(static_cast<u8>(HW::PIN::PDR), OUTPUT); // Rf output enable.
@@ -271,12 +270,13 @@ namespace Interface {
 } auto loop() -> void {
     Serial.begin(1000000L); delay(1000L);
     using namespace System;
+    Marker marker( Synthesis::PFD, 5e3 );
     auto ff{ 65.4321e6 }, df{ 5e3 };
-    pll(m( ff )).flush(); HW::wait(); pr(' '); pl(m());
+    pll(marker( ff )).flush(); HW::wait(); pr(' '); pl(marker());
     //pll.phaseAdjust(E::ON)(m.phase(270)).flush();// pl(m.phase());
     Interface::AnalogTouch up(Interface::PIN::UP), dn(Interface::PIN::DN);
     while(1) {
       delay(100);
-      if(up()) { pll(m( ff+=df )).flush(); HW::wait(); pr('U'); pl(m()); }
-      if(dn()) { pll(m( ff-=df )).flush(); HW::wait(); pr('D'); pl(m()); }
+      if(up()) { pll(marker( ff+=df )).flush(); HW::wait(); pr('U'); pl(marker()); }
+      if(dn()) { pll(marker( ff-=df )).flush(); HW::wait(); pr('D'); pl(marker()); }
     } } // kd9fww
