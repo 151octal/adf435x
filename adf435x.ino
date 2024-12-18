@@ -284,8 +284,8 @@ auto loop() -> void {
   Marker mkr( Synthesis::PFD, Synthesis::CHANNEL_SPACING );
   auto ff{ 65.4321e6 }, df{ 5e3 };
   pll(mkr( ff )); pll(mkr.mag(dBm::plus5)).flush(); wait();
+  pll(mkr.phi(60/3.6e2)).phaseAdjust(E::ON).flush();
   rfHardEnable(E::ON);
-  //pll(mkr.phi(6./36)).phaseAdjust(E::ON).flush(); // 60º
   pr(' '); pr(mkr()); pr(u16(mkr.mag())); pl(mkr.phi(),3);
   IO::AnalogTouch up(PIN::UP), down(PIN::DOWN), right(PIN::RIGHT), left(PIN::LEFT);
 ; while(1) {
