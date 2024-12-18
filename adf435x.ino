@@ -8,7 +8,7 @@
 #include <ArxContainer.h>
 #include <SPI.h>
 #include <AnalogTouch.h>
-namespace HardWare { /*
+  namespace System { /*
   Commented out, but wired:        D4                                      D11       D13 */
   enum class PIN : u8 {    /* MUX = 4, */ PDR = 6, LD = 7, LE = 10 /* DAT = 11, CLK = 13 */ };
   const auto wait = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
@@ -18,7 +18,7 @@ namespace HardWare { /*
     digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
-} namespace HW = HardWare;  namespace Synthesis {
+      } namespace Synthesis {
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -56,12 +56,12 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-} namespace State {
+    } namespace State {
   constexpr struct Parameters { u16 divis, whole, denom, numer, propo; } INIT{ 0,0,0,0,1 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
-namespace Synthesis {
+    namespace Synthesis {
   /* ©2024 kd9fww */
-class SpecifiedOverlay {
+class Overlay {
   private:
     static const LayoutSpecification* const layoutSpec;
     State::Parameters mem{ State::INIT };
@@ -114,11 +114,13 @@ class SpecifiedOverlay {
       case 16:  cx = dev.N - 4; break;    /* r4 ••• */ }
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
-    for(/* empty */; dev.N != cx; ++cx) HW::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
+    for(/* empty */; dev.N != cx; ++cx) System::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction(); }
-} final; const LayoutSpecification* const SpecifiedOverlay::layoutSpec{ ADF435x };
-} namespace System { Synthesis::SpecifiedOverlay pll; }
-namespace Manifest {
+} final; const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
+  } namespace System {
+  /* ©2024 kd9fww */
+Synthesis::Overlay pll; }
+    namespace Manifest {
   constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
   constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
   constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
@@ -135,7 +137,9 @@ namespace Manifest {
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
   constexpr   auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
-  static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );}
+  static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
+    }
+    /* ©2024 kd9fww */
 class Marker {
   using DBL = double;
   private:
@@ -168,18 +172,20 @@ class Marker {
     return loci;  }
   auto step() -> decltype(stp) { return stp; } const
   auto step(const DBL& Hertz) -> void { stp = Hertz; } };
+using namespace System;
     /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
   SPI.begin();
-  pinMode(static_cast<u8>(HW::PIN::PDR), OUTPUT); // Rf output enable.
-  HW::rfHardEnable( E::ON );                      // For OnOffKeying (OOK) start with E::OFF.
-  pinMode(static_cast<u8>(HW::PIN::LE), OUTPUT);
-  digitalWrite(static_cast<u8>(HW::PIN::LE), 1);  /* Latch on rising edge:
+  pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
+  rfHardEnable( E::ON );                      // For OnOffKeying (OOK) start with E::OFF.
+  pinMode(static_cast<u8>(PIN::LE), OUTPUT);
+  digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
-  pinMode(static_cast<u8>(HW::PIN::LD), INPUT);   // Lock detect.
+  pinMode(static_cast<u8>(PIN::LD), INPUT);   // Lock detect.
     /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
-{ /* Enter another scope. */  using namespace Synthesis;  SpecifiedOverlay temp; /*
+{ /* Enter another scope. */
+using namespace Synthesis;  Overlay temp; /*
   Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
   m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
@@ -238,17 +244,15 @@ auto setup() -> void {
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
-System::pll = temp;  /* Save and exit scope (discarding temp). */ }
+  pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* Exit setup() */ }
-    // Shorthand, as it were.
-  void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
-  void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num); Serial.print(' '); };
-  void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
-  void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
-  void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
-  void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
-  void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
-    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
+    void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
+    void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num);Serial.print(' ');};
+    void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
+    void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
+    void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
+    void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
+    void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
 namespace Interface {
   enum class PIN : u8 { UP = A0, DN = A7 };
   class AnalogTouch {
@@ -266,18 +270,17 @@ namespace Interface {
     AnalogTouch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n } {}
     virtual ~AnalogTouch() {}
       // Stolen from the AnalogTouch example.
-    const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; } };
-} auto loop() -> void {
+    const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }}; }
+    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
+auto loop() -> void {
     Serial.begin(1000000L); delay(1000L);
     using namespace System;
     Marker marker( Synthesis::PFD, 5e3 );
     auto ff{ 65.4321e6 }, df{ 5e3 };
-    pll(marker( ff )).flush(); HW::wait(); pr(' '); pl(marker());
-    //pll.phaseAdjust(E::ON)(m.phase(270)).flush();// pl(m.phase());
+    pll(marker( ff )).flush(); wait(); pr(' '); pl(marker());
+    //pll(marker.phase(270)).phaseAdjust(E::ON).flush();// pl(m.phase());
     Interface::AnalogTouch up(Interface::PIN::UP), dn(Interface::PIN::DN);
     while(1) {
       delay(100);
-      if(up()) { pll(marker( ff+=df )).flush(); HW::wait(); pr('U'); pl(marker()); }
-      if(dn()) { pll(marker( ff-=df )).flush(); HW::wait(); pr('D'); pl(marker()); } }
-} // kd9fww
-
+      if(up()) { pll(marker( ff+=df )).flush(); wait(); pr('U'); pl(marker()); }
+      if(dn()) { pll(marker( ff-=df )).flush(); wait(); pr('D'); pl(marker()); } } } // kd9fww
