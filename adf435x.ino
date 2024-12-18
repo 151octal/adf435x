@@ -65,8 +65,9 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-} namespace State { struct Parameters { u16 divis, whole, denom, numer, propo; };
-  constexpr Parameters INIT{ 0,0,0,0,1 };
+} enum dBm : u8 { minus4, minus1, plus2, plus5 };
+namespace State { struct Parameters { u16 divis, whole, denom, numer, propo; u8 outpwr; };
+  constexpr Parameters INIT{ 0,0,0,0,1,minus4 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 namespace Synthesis {
   /* ©2024 kd9fww */
@@ -100,16 +101,18 @@ class Overlay {
   auto operator()( const S& sym,const u16& val ) -> decltype(*this) {
     switch(sym) {
       default: return raw( sym,val );
-      case S::fraction:     if(val != mem.numer) return raw( sym,mem.numer = val ); break;
-      case S::integer:      if(val != mem.whole) return raw( sym,mem.whole = val ); break;
-      case S::phase:        if(val != mem.propo) return raw( sym,mem.propo = val ); break;
-      case S::modulus:      if(val != mem.denom) return raw( sym,mem.denom = val ); break;
-      case S::rfDivSelect:  if(val != mem.divis) return raw( sym,mem.divis = val ); break; } }
+      case S::fraction:     if(val !=  mem.numer) return raw( sym,mem.numer  = val ); break;
+      case S::integer:      if(val !=  mem.whole) return raw( sym,mem.whole  = val ); break;
+      case S::phase:        if(val !=  mem.propo) return raw( sym,mem.propo  = val ); break;
+      case S::modulus:      if(val !=  mem.denom) return raw( sym,mem.denom  = val ); break;
+      case S::rfDivSelect:  if(val !=  mem.divis) return raw( sym,mem.divis  = val ); break;
+      case S::rfOutPwr:     if(static_cast<dBm>(val) != mem.outpwr)
+                              return raw( sym,mem.outpwr = static_cast<dBm>(val) ); break; } }
     // usage: object( loci ).operator()( loci ) ••• ad infinitum
   auto operator()( const State::Parameters& loci ) -> decltype(*this) {
     operator()( S::fraction,loci.numer ).operator()( S::integer,loci.whole );
     operator()( S::modulus,loci.denom ).operator()( S::phase,loci.propo );
-    operator()( S::rfDivSelect,loci.divis );
+    operator()( S::rfDivSelect,loci.divis ).operator()( S::rfOutPwr,loci.outpwr );
     return *this;  }
   auto flush() -> void {
     char cx{ 0 };
@@ -157,7 +160,7 @@ const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
   public:
   virtual ~Marker() {}
   explicit Marker( const DBL& actual_pfd, const DBL& increment )
-  : pfd{ actual_pfd }, spacing{ increment } {}
+    : pfd{ actual_pfd }, spacing{ increment } {}
   // f(t) = |magnitude| * pow( euleran, j(omega*t + phi) )
   const auto operator()() -> DBL {  // omega
     return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.divis); } const
@@ -171,15 +174,16 @@ const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
     loci.denom = u16( round( pfd / spacing ) );
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
-  const auto phi() -> DBL { return (loci.propo / DBL(loci.denom - 1)) - 0.5; } const
+  const auto mag() -> u8 { return loci.outpwr; } const
+  auto mag(dBm p) -> decltype(loci) { loci.outpwr = p; return loci; }
+  const auto phi() -> DBL { return (loci.propo / DBL(loci.denom - 1)); } const
     #ifdef degrees
     #define execrable_macro_encountered
     #endif  // "What a bummer, eh?" Ian Anderson. "Good grief, Charlie Brown." C.M. Schulz.
   auto phi(DBL normalized) -> decltype(loci){
-      normalized = (-0.5 > normalized) ? -0.5 : normalized;
-      normalized = ( 0.5 < normalized) ?  0.5 : normalized;
-      normalized += 0.5;
-      loci.propo = u16(round( normalized * (loci.denom - 1) ));
+      normalized = (0 > normalized) ? 0 : normalized;
+      normalized = (1 < normalized) ? 1 : normalized;
+      loci.propo = u16( round(normalized * (loci.denom - 1)) );
       return loci; }
   auto delta() -> decltype(spacing) { return spacing; } const
   auto delta(const DBL& increment) -> void { spacing = increment; } };
@@ -190,7 +194,7 @@ auto setup() -> void {
   SPI.begin();
   /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
-  rfHardEnable( E::ON );                      // For OnOffKeying (OOK) start with E::OFF.
+  rfHardEnable( E::OFF );                      // For OnOffKeying (OOK) start with E::OFF.
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
@@ -220,7 +224,7 @@ auto loop() -> void {
   Quantiy S::_end calls of set() are required, in any order. Four set() calls are made for each
   mkr.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
-  temp( S::phase, 1);                                // Adjust phase AFTER loop lock.         (4)
+  temp( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.     (4)
   temp( S::phAdj, E::OFF );                                                                // (5)
   enum PRSCL { four5ths = 0, eight9ths }; // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths)
   temp( S::prescaler,PRSCL::eight9ths );                                                   // (6)
@@ -279,11 +283,12 @@ auto loop() -> void {
   using namespace System;
   Marker mkr( Synthesis::PFD, Synthesis::CHANNEL_SPACING );
   auto ff{ 65.4321e6 }, df{ 5e3 };
-  pll(mkr( ff )).flush(); wait();
-  //pll(mkr.phi(0)).phaseAdjust(E::ON).flush();
-  pr(' '); pr(mkr()); pl(mkr.phi(),2);
+  pll(mkr( ff )); pll(mkr.mag(dBm::plus5)).flush(); wait();
+  rfHardEnable(E::ON);
+  //pll(mkr.phi(6./36)).phaseAdjust(E::ON).flush(); // 60º
+  pr(' '); pr(mkr()); pr(u16(mkr.mag())); pl(mkr.phi(),3);
   IO::AnalogTouch up(PIN::UP), down(PIN::DOWN), right(PIN::RIGHT), left(PIN::LEFT);
 ; while(1) {
-    if(  up()) { pll(mkr( ff+=df )).flush(); wait(); pr('U'); pr(mkr()); pl(mkr.phi(),2); }
-    if(down()) { pll(mkr( ff-=df )).flush(); wait(); pr('D'); pr(mkr()); pl(mkr.phi(),2); }
+    if(  up()) { pll(mkr( ff+=df )).flush(); wait(); pr('U'); pr(mkr()); }
+    if(down()) { pll(mkr( ff-=df )).flush(); wait(); pr('D'); pr(mkr()); }
     delay(100); } } // kd9fww
