@@ -145,8 +145,9 @@ class Marker {
   public:
   virtual ~Marker() {}
   explicit Marker(const DBL& _pfd, const DBL& _step) : pfd{_pfd}, stp{_step} {}
-  auto freq() -> DBL {return pfd*(loci.whole+DBL(loci.numer)/loci.denom)/pow(2,loci.divis);} const
-  auto freq(DBL Hertz) -> decltype(loci) {    // Hertz is a function scope copy.
+  const auto operator()() -> DBL {
+    return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.divis); } const
+  auto operator()(DBL Hertz) -> decltype(loci) {    // Hertz is a function scope copy.
     Hertz = (Manifest::MIN_FREQ < Hertz) ? Hertz : Manifest::MIN_FREQ;
     Hertz = (Manifest::MAX_FREQ > Hertz) ? Hertz : Manifest::MAX_FREQ;
     loci.divis = u16( floor( log2(Manifest::MAX_VCO / Hertz) ) );
@@ -159,14 +160,14 @@ class Marker {
     /* //#ifdef degrees
        //#undef degrees                       // "Good grief, Charlie Brown." C.M. Schulz.
        //#endif  */
-  auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } const
-  auto phase(DBL degrEEs) -> decltype(loci) { // (degrEEs / 360) = (propo / (denom-1))
+  const auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } const
+  auto phase(DBL degrEEs) -> decltype(loci) {       // (degrEEs / 360) = (propo / (denom-1))
     degrEEs = { (360 < degrEEs) ? (360-degrEEs) : (0 > degrEEs) ? (360 + degrEEs) : degrEEs };
     auto proportion{ (degrEEs / 360 * (loci.denom - 1)) };
     loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
     return loci;  }
   auto step() -> decltype(stp) { return stp; } const
-  auto step(const DBL& Hertz) -> void { stp = Hertz; }  };
+  auto step(const DBL& Hertz) -> void { stp = Hertz; } };
 namespace System{ Marker m( Synthesis::PFD, 5e3 ); }
   /* "... how shall I tell you the story?" And the King replied: "Start at the beginning. Proceed
      until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
@@ -270,11 +271,11 @@ namespace Interface {
     Serial.begin(1000000L); delay(1000L);
     using namespace System;
     auto ff{ 65.4321e6 }, df{ 5e3 };
-    pll.set(m.freq( ff )).flush(); HW::wait(); pr(' '); pl(ff);
+    pll.set(m( ff )).flush(); HW::wait(); pr(' '); pl(ff);
     //pll.phaseAdjust(E::ON).set(m.phase(270)).flush();// pl(m.phase());
     Interface::Touch up(Interface::PIN::UP), dn(Interface::PIN::DN);
     while(1) {
       delay(100);
-      if(up()) { pll.set(m.freq( ff+=df )).flush(); HW::wait(); pr('U'); pl(ff); }
-      if(dn()) { pll.set(m.freq( ff-=df )).flush(); HW::wait(); pr('D'); pl(ff); }
+      if(up()) { pll.set(m( ff+=df )).flush(); HW::wait(); pr('U'); pl(ff); }
+      if(dn()) { pll.set(m( ff-=df )).flush(); HW::wait(); pr('D'); pl(ff); }
     } } // kd9fww
