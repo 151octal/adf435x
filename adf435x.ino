@@ -106,12 +106,12 @@ class SpecifiedOverlay {
   auto flush() -> void {
     char cx{ 0 };
     switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
-      default: break;                   /* Otherwise: say they're all dirty. */
-      case 0: return;                   /* None dirty. */
-      case 1: cx = dev.N - 1; break;    /* r0 ••• */
-      case 2: /* fall thru */           /* r1 ••• */
-      case 3: cx = dev.N - 2; break;    /* r1 and r0 ••• */
-      case 16: cx = dev.N - 4; break;   /* r4 ••• */ }
+      default:  break;                    /* Otherwise: say they're all dirty. */
+      case  0:  return;                   /* None dirty. */
+      case  1:  cx = dev.N - 1; break;    /* r0 ••• */
+      case  2:  /* fall thru */           /* r1 ••• */
+      case  3:  cx = dev.N - 2; break;    /* r1 and r0 ••• */
+      case 16:  cx = dev.N - 4; break;    /* r4 ••• */ }
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
     for(/* empty */; dev.N != cx; ++cx) HW::txSPI( &dev.reg[cx], sizeof(dev.reg[cx]) );
@@ -278,5 +278,6 @@ namespace Interface {
     while(1) {
       delay(100);
       if(up()) { pll(marker( ff+=df )).flush(); HW::wait(); pr('U'); pl(marker()); }
-      if(dn()) { pll(marker( ff-=df )).flush(); HW::wait(); pr('D'); pl(marker()); }
-    } } // kd9fww
+      if(dn()) { pll(marker( ff-=df )).flush(); HW::wait(); pr('D'); pl(marker()); } }
+} // kd9fww
+
