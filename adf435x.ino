@@ -256,15 +256,16 @@ namespace Interface {
       PIN which;
       size_t Nsamples;
       u16 offset, ref{ 0xffff }, adc{};
+        // Based on AnalogTouch example.
+      auto cal() -> void { 
+        adc = analogTouchRead(static_cast<u8>(which), Nsamples);
+        ;    if (adc < (ref >> offset)) ref = (adc << offset);
+        else if (adc > (ref >> offset)) ref++; }
     public:
     Touch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n }, offset{ factor } {}
     virtual ~Touch() {}
-    auto cal() -> void {
-      adc = analogTouchRead(static_cast<u8>(which), Nsamples);
-      ;    if (adc < (ref >> offset)) ref = (adc << offset);
-      else if (adc > (ref >> offset)) ref++; }
-        // auto dump() -> void { if( state() ) pr('1'); else pr('0'); pr(ref); pl(adc); }
-    auto state() -> bool { cal(); return ((adc - (ref >> offset)) > 40) ? true : false; }  };
+      // Based on AnalogTouch example.
+    const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; } };
 } auto loop() -> void {
     Serial.begin(1000000L); delay(1000L);
     using namespace System;
@@ -274,6 +275,6 @@ namespace Interface {
     Interface::Touch up(Interface::PIN::UP), dn(Interface::PIN::DN);
     while(1) {
       delay(100);
-      if(up.state()) { pll.set( m.freq(ff += df) ).flush(); HW::wait(); pr('U'); pl(ff); }
-      if(dn.state()) { pll.set( m.freq(ff -= df) ).flush(); HW::wait(); pr('D'); pl(ff); }
+      if(up()) { pll.set(m.freq( ff+=df )).flush(); HW::wait(); pr('U'); pl(ff); }
+      if(dn()) { pll.set(m.freq( ff-=df )).flush(); HW::wait(); pr('D'); pl(ff); }
     } } // kd9fww
