@@ -128,13 +128,14 @@ class Overlay {
   } final; /* ©2024 kd9fww */
 const LayoutSpecification* const Overlay::layoutSpec{ ADF435x }; 
 } namespace Manifest {
-    // PFD: Phase Frequency Detector (All) in units of Hertz.
+    // PFD: Phase Frequency Detector (in units of Hertz).
     constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest fact ...
     constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
     constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
 } namespace Synthesis {
-; constexpr  u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
+  constexpr  u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
   static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
+; constexpr auto  CHANNEL_SPACING{ 5e3 };
   constexpr auto  REF_TGLR{ E::ON };                // OFF: Only IFF OSC IS a 50% square wave.
   constexpr auto  REF_DBLR{ REF_TGLR };
   constexpr auto  COMP{ E::ON };                    // OFF: No OSCillator error COMPensation.
@@ -150,36 +151,38 @@ const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
 } class Marker {
   using DBL = double;
   private:
-    DBL pfd, stp;
+    DBL pfd, spacing;
     State::Parameters loci{ State::INIT };
     static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
   public:
   virtual ~Marker() {}
-  explicit Marker( const DBL& actual_pfd, const DBL& desired_step )
-  : pfd{ actual_pfd }, stp{ desired_step } {}
-  const auto operator()() -> DBL {
+  explicit Marker( const DBL& actual_pfd, const DBL& increment )
+  : pfd{ actual_pfd }, spacing{ increment } {}
+  // f(t) = |magnitude| * pow( euleran, j(omega*t + phi) )
+  const auto operator()() -> DBL {  // omega
     return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.divis); } const
-  auto operator()(DBL Hertz) -> decltype(loci) {  // Hertz is a function scope copy.
-    Hertz = (Manifest::MIN_FREQ < Hertz) ? Hertz : Manifest::MIN_FREQ;
-    Hertz = (Manifest::MAX_FREQ > Hertz) ? Hertz : Manifest::MAX_FREQ;
-    loci.divis = u16( floor( log2(Manifest::MAX_VCO / Hertz) ) );
-    auto fractional_N{ Hertz / pfd * pow(2, loci.divis) };
+  auto operator()(DBL omega) -> decltype(loci) {  // omega is a function scope copy.
+    omega = (Manifest::MIN_FREQ < omega) ? omega : Manifest::MIN_FREQ;
+    omega = (Manifest::MAX_FREQ > omega) ? omega : Manifest::MAX_FREQ;
+    loci.divis = u16( floor( log2(Manifest::MAX_VCO / omega) ) );
+    auto fractional_N{ omega / pfd * pow(2, loci.divis) };
     loci.whole = u16( floor( fractional_N ) );
     loci.whole = (22 < loci.whole) ? loci.whole : 22;
-    loci.denom = u16( round( pfd / stp ) );
+    loci.denom = u16( round( pfd / spacing ) );
     loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
     return loci;  }
-  const auto phase() -> DBL { return loci.propo / DBL(loci.denom - 1) * 360; } const
+  const auto phi() -> DBL { return (loci.propo / DBL(loci.denom - 1)) - 0.5; } const
     #ifdef degrees
-    #define execrable_macro_name_encountered
+    #define execrable_macro_encountered
     #endif  // "What a bummer, eh?" Ian Anderson. "Good grief, Charlie Brown." C.M. Schulz.
-  auto phase(DBL degrEEs) -> decltype(loci) {     // (degrEEs / 360) = (propo / (denom-1))
-    degrEEs = { (360 < degrEEs) ? (360-degrEEs) : (0 > degrEEs) ? (360 + degrEEs) : degrEEs };
-    auto proportion{ (degrEEs / 360 * (loci.denom - 1)) };
-    loci.propo = u16( (proportion > loci.denom - 1) ? loci.denom - 1 : proportion );
-    return loci;  }
-  auto step() -> decltype(stp) { return stp; } const
-  auto step(const DBL& Hertz) -> void { stp = Hertz; } };
+  auto phi(DBL normalized) -> decltype(loci){
+      normalized = (-0.5 > normalized) ? -0.5 : normalized;
+      normalized = ( 0.5 < normalized) ?  0.5 : normalized;
+      normalized += 0.5;
+      loci.propo = u16(round( normalized * (loci.denom - 1) ));
+      return loci; }
+  auto delta() -> decltype(spacing) { return spacing; } const
+  auto delta(const DBL& increment) -> void { spacing = increment; } };
     /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
@@ -215,7 +218,7 @@ auto loop() -> void {
   using namespace Synthesis;
 ; Overlay pll;  { /* Enter another scope. */ Overlay temp; /*
   Quantiy S::_end calls of set() are required, in any order. Four set() calls are made for each
-  marker.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
+  mkr.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
   temp( S::phase, 1);                                // Adjust phase AFTER loop lock.         (4)
   temp( S::phAdj, E::OFF );                                                                // (5)
@@ -274,12 +277,13 @@ auto loop() -> void {
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
 ; pll = temp;   } /* Save and exit scope (discarding temp). */
   using namespace System;
-  Marker marker( Synthesis::PFD, 5e3 );
+  Marker mkr( Synthesis::PFD, Synthesis::CHANNEL_SPACING );
   auto ff{ 65.4321e6 }, df{ 5e3 };
-  pll(marker( ff )).flush(); wait(); pr(' '); pl(marker());
-  //pll(marker.phase(270)).phaseAdjust(E::ON).flush();// pl(marker.phase());
+  pll(mkr( ff )).flush(); wait();
+  //pll(mkr.phi(0)).phaseAdjust(E::ON).flush();
+  pr(' '); pr(mkr()); pl(mkr.phi(),2);
   IO::AnalogTouch up(PIN::UP), down(PIN::DOWN), right(PIN::RIGHT), left(PIN::LEFT);
 ; while(1) {
-    delay(100);
-    if(  up()) { pll(marker( ff+=df )).flush(); wait(); pr('U'); pl(marker()); }
-    if(down()) { pll(marker( ff-=df )).flush(); wait(); pr('D'); pl(marker()); } } } // kd9fww
+    if(  up()) { pll(mkr( ff+=df )).flush(); wait(); pr('U'); pr(mkr()); pl(mkr.phi(),2); }
+    if(down()) { pll(mkr( ff-=df )).flush(); wait(); pr('D'); pr(mkr()); pl(mkr.phi(),2); }
+    delay(100); } } // kd9fww
