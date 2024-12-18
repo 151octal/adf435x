@@ -38,14 +38,31 @@
   h.7:D4(T0)-w----------------MUX--w-b.7 | a.7(mux)-w----w-3 (C) |     [[•]] | 8 | 7 | GND (A)  |
   h.14:D11(MOSI)=p============DAT==p=b.6 | a.6(dat)-w----w-5 (D) |   (E)  le | 6 | 5 | dat (D)  |
   h.13:D10(SS*)=p==============LE==p=b.5 | a.5(le)--w----w-6 (E) |   (B) clk | 4 | 3 | mux (C)  |
-  h.12:D9=p========================p=b.4 | a.4  available.0      |   (F)  ld | 2 | 1 | pdr (G)  |
-  h.11:D8=p========================p=b.3 | a.3  available.1      |------------------------------|
+  h.12:D9=p========================p=b.4 | a.4  (available)      |   (F)  ld | 2 | 1 | pdr (G)  |
+  h.11:D8=p========================p=b.3 | a.3  (available)      |------------------------------|
   h.10:D7=p====================LD==p=b.2 | a.2(ld)--w----w-2 (F) | Leave  0  open to provide a  |
   h.9:D6=p====================PDR==p=b.1 | a.1(pdr)-w----w-1 (G) | [[sleeve]] jumper to  8 .    |
   h.27:(5V From Nano.reg5)-w--5V---w-b.v | v.a(3v3)-w----w-9 (H) <- (NOT h.17)
-  //                   (single point)-b.v-w-------------w-5V (I) <- To pll.reg3.3 input •5.5V MAX•
-  h.29:(system.pwr.return-GND: Nano.reg5 return)
-  h.30:(system.pwr.supply-VIN: Nano.reg5 input)
+  //                  (single point)-b.v-w--------------w-5V (I) <- To pll.reg3.3 input •5.5V MAX•
+  h.19:A0---lead wire---10K resistor---wire---touchPad:LEFT
+  h.20:A1---lead wire---10K resistor---wire---touchPad:DOWN
+  h.21:A2---lead wire---10K resistor---wire---touchPad:UP
+  h.22:A3---lead wire---10K resistor---wire---touchPad:RIGHT
+  h.23:SDA--------------OLED:SDA
+  h.24:SCL--------------OLED:SCL
+  h.25:A6  (available)
+  h.26:A7  (available)
+  ISP.1:MISO
+  ISP.2:5V--------------OLED:5V, KNOB:5V
+  ISP.3:SCK
+  ISP.4:MOSI
+  ISP.5:RESET
+  ISP.6:GND-------------OLED:GND, KNOB:GND
+  h.3:RST---------------OLED:RESET
+  h.5:D2(INT0)----------KNOB:A
+  h.6:D3(INT1)----------KNOB:B
+  h.29:(system.pwr.return---GND: Nano.reg5 return)
+  h.30:(system.pwr.supply---VIN: Nano.reg5 input)
   ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - dont use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.

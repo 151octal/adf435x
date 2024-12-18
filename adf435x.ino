@@ -117,9 +117,7 @@ class Overlay {
     SPI.endTransaction(); }
   auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
    } final; const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
-} namespace System {
-     /* ©2024 kd9fww */
-Synthesis::Overlay pll; }
+}// namespace System {     /* ©2024 kd9fww */ Synthesis::Overlay pll; }
 namespace Manifest {
     constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest constants ...
     constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
@@ -177,15 +175,43 @@ using namespace System;
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {
   SPI.begin();
+    /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
   rfHardEnable( E::ON );                      // For OnOffKeying (OOK) start with E::OFF.
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
-  pinMode(static_cast<u8>(PIN::LD), INPUT);   // Lock detect.
-    /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
-{ /* Enter another scope. */
-using namespace Synthesis;  Overlay temp; /*
+  pinMode(static_cast<u8>(PIN::LD), INPUT);   /* Lock detect. */ }
+    void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
+    void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num);Serial.print(' ');};
+    void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
+    void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
+    void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
+    void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
+    void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
+namespace IO {
+  enum class PIN : u8 { LEFT = A0, DOWN = A1, UP = A2, RIGHT = A3 };
+class AnalogTouch {
+    private:
+      static constexpr auto Gain{ 2 };
+      PIN which;
+      size_t Nsamples;
+      u16 offset{ Gain }, ref{ 0xffff }, adc{};
+        // Stolen from the AnalogTouch example.
+      auto cal() -> void { 
+        adc = analogTouchRead(static_cast<u8>(which), Nsamples);
+        ;    if (adc < (ref >> offset)) ref = (adc << offset);
+        else if (adc > (ref >> offset)) ref++; }
+    public:
+    AnalogTouch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n } {}
+    virtual ~AnalogTouch() {}
+      // Stolen from the AnalogTouch example.
+    const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  };}
+    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
+auto loop() -> void {
+  Synthesis::Overlay pll;
+  using namespace Synthesis;
+{ /* Enter another scope. */  Overlay temp; /*
   Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
   m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
@@ -244,43 +270,17 @@ using namespace Synthesis;  Overlay temp; /*
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
-  pll = temp;  /* Save and exit scope (discarding temp). */ }
-/* Exit setup() */ }
-    void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
-    void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num);Serial.print(' ');};
-    void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
-    void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
-    void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
-    void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
-    void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
-namespace Interface {
-  enum class PIN : u8 { UP = A0, DN = A7 };
-class AnalogTouch {
-    private:
-      static constexpr auto Gain{ 2 };
-      PIN which;
-      size_t Nsamples;
-      u16 offset{ Gain }, ref{ 0xffff }, adc{};
-        // Stolen from the AnalogTouch example.
-      auto cal() -> void { 
-        adc = analogTouchRead(static_cast<u8>(which), Nsamples);
-        ;    if (adc < (ref >> offset)) ref = (adc << offset);
-        else if (adc > (ref >> offset)) ref++; }
-    public:
-    AnalogTouch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n } {}
-    virtual ~AnalogTouch() {}
-      // Stolen from the AnalogTouch example.
-    const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }}; }
-    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void {
-    Serial.begin(1000000L); delay(1000L);
-    using namespace System;
-    Marker marker( Synthesis::PFD, 5e3 );
-    auto ff{ 65.4321e6 }, df{ 5e3 };
-    pll(marker( ff )).flush(); wait(); pr(' '); pl(marker());
-    //pll(marker.phase(270)).phaseAdjust(E::ON).flush();// pl(m.phase());
-    Interface::AnalogTouch up(Interface::PIN::UP), dn(Interface::PIN::DN);
-    while(1) {
-      delay(100);
-      if(up()) { pll(marker( ff+=df )).flush(); wait(); pr('U'); pl(marker()); }
-      if(dn()) { pll(marker( ff-=df )).flush(); wait(); pr('D'); pl(marker()); } } } // kd9fww
+; pll = temp;  /* Save and exit scope (discarding temp). */ }
+  Serial.begin(1000000L); delay(1000L);
+  using namespace System;
+  Marker marker( Synthesis::PFD, 5e3 );
+  auto ff{ 65.4321e6 }, df{ 5e3 };
+  pll(marker( ff )).flush(); wait(); pr(' '); pl(marker());
+  //pll(marker.phase(270)).phaseAdjust(E::ON).flush();// pl(m.phase());
+  //using namespace IO;
+  IO::AnalogTouch       up(IO::PIN::UP), down(IO::PIN::DOWN);
+  IO::AnalogTouch right(IO::PIN::RIGHT), left(IO::PIN::LEFT);
+; while(1) {
+    delay(100);
+    if(  up()) { pll(marker( ff+=df )).flush(); wait(); pr('U'); pl(marker()); }
+    if(down()) { pll(marker( ff-=df )).flush(); wait(); pr('D'); pl(marker()); } } } // kd9fww
