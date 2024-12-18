@@ -87,8 +87,8 @@ class SpecifiedOverlay {
       dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
       return *this; }
   public:
-    // wrapper for raw(). usage: object.set( symA,valA ).set( symB,valB )
-  auto set( const S& sym,const u16& val ) -> decltype(*this) {
+    // wrapper for raw(). usage: object.operator()( symA,valA ).operator()( symB,valB )
+  auto operator()( const S& sym,const u16& val ) -> decltype(*this) {
     switch(sym) {
       default: return raw( sym,val );
       case S::fraction:     if(val != mem.numer) return raw( sym,mem.numer = val ); break;
@@ -97,10 +97,10 @@ class SpecifiedOverlay {
       case S::modulus:      if(val != mem.denom) return raw( sym,mem.denom = val ); break;
       case S::rfDivSelect:  if(val != mem.divis) return raw( sym,mem.divis = val ); break; 
      }  }
-  auto set( const State::Parameters& loci ) -> decltype(*this) {
-    set( S::fraction,loci.numer ).set( S::integer,loci.whole );
-    set( S::modulus,loci.denom ).set( S::phase,loci.propo );
-    set( S::rfDivSelect,loci.divis );
+  auto operator()( const State::Parameters& loci ) -> decltype(*this) {
+    operator()( S::fraction,loci.numer ).operator()( S::integer,loci.whole );
+    operator()( S::modulus,loci.denom ).operator()( S::phase,loci.propo );
+    operator()( S::rfDivSelect,loci.divis );
     return *this;  }
   auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
   auto flush() -> void {
@@ -184,63 +184,64 @@ auto setup() -> void {
   Quantiyy S::_end calls of set() are required, in any order. Four set() calls are made for each
   m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
-  temp.set( S::phase, 1);                            // Adjust phase AFTER loop lock.         (4)
-  temp.set( S::phAdj, E::OFF );                                                            // (5)
+  temp( S::phase, 1);                                // Adjust phase AFTER loop lock.         (4)
+  temp( S::phAdj, E::OFF );                                                                // (5)
   enum PRSCL { four5ths = 0, eight9ths }; // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths)
-  temp.set( S::prescaler,PRSCL::eight9ths );                                               // (6)
-  temp.set( S::counterReset, E::OFF );                                                     // (7)
-  temp.set( S::cp3state, E::OFF );                                                         // (8)
-  temp.set( S::idle, E::OFF );                                                             // (9)
+  temp( S::prescaler,PRSCL::eight9ths );                                                   // (6)
+  temp( S::counterReset, E::OFF );                                                         // (7)
+  temp( S::cp3state, E::OFF );                                                             // (8)
+  temp( S::idle, E::OFF );                                                                 // (9)
   enum PDpolarity { negative = 0, positive };
-  temp.set( S::pdPolarity, PDpolarity::positive );                                         // (10)
+  temp( S::pdPolarity, PDpolarity::positive );                                             // (10)
   enum LDPnS { ten = 0, six };            // Lock Detect Precision nanoSeconds
-  temp.set( S::ldp, LDPnS::ten );                                                          // (11)
+  temp( S::ldp, LDPnS::ten );                                                              // (11)
   enum LockDetectFunction{ fracN = 0, intN };
-  temp.set( S::ldf, LockDetectFunction::fracN );                                           // (12)
-  temp.set( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.       (13)
-  temp.set( S::dblBfr, E::ON );                                                            // (14)
-  temp.set( S::rCounter, Synthesis::REF_COUNTER );                                       // (15)
-  temp.set( S::refToggler, Synthesis::REF_TGLR );                                        // (16)
-  temp.set( S::refDoubler, Synthesis::REF_DBLR );                                        // (17)
+  temp( S::ldf, LockDetectFunction::fracN );                                               // (12)
+  temp( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.           (13)
+  temp( S::dblBfr, E::ON );                                                                // (14)
+  temp( S::rCounter, Synthesis::REF_COUNTER );                                             // (15)
+  temp( S::refToggler, Synthesis::REF_TGLR );                                              // (16)
+  temp( S::refDoubler, Synthesis::REF_DBLR );                                              // (17)
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
-  temp.set( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                (18)
+  temp( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                    (18)
   constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
   //static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
-  temp.set( S::LnLsModes, nsMode );                                                        // (19)
+  temp( S::LnLsModes, nsMode );                                                            // (19)
   constexpr auto CLKDIV32 = 150;          // I don't understand this, YET.
   //= round( PFD / MODULUS * 400e-6 ); // from datasheets'
   // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
   static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
-  temp.set( S::clkDivider, CLKDIV );                                                       // (20)
+  temp( S::clkDivider, CLKDIV );                                                           // (20)
   enum ClockingMode { dividerOff = 0, fastLock, phResync };
-  temp.set( S::clkDivMode, ClockingMode::dividerOff );                                     // (21)
-  temp.set( S::csr, E::ON );              // Cycle Slip reduction                             (22)
-  temp.set( S::chrgCancel, E::OFF );                                                       // (23)
+  temp( S::clkDivMode, ClockingMode::dividerOff );                                         // (21)
+  temp( S::csr, E::ON );              // Cycle Slip reduction                                 (22)
+  temp( S::chrgCancel, E::OFF );                                                           // (23)
   enum ABPnS { nS6fracN = 0, nS3intN };   // AntiBacklash Pulse nanoSeconds
-  temp.set( S::abp, ABPnS::nS6fracN );                                                     // (24)
+  temp( S::abp, ABPnS::nS6fracN );                                                         // (24)
   enum BndSelClkMd { automatic = 0, programmed };
-  temp.set( S::bscMode,
+  temp( S::bscMode,
   (Manifest::MIN_PFD < Synthesis::PFD) ? BndSelClkMd::programmed : BndSelClkMd::automatic);// (25)
   constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
-  temp.set( S::rfOutPwr, outPower );                                                       // (26)
-  temp.set( S::rfSoftEnable, E::ON );                                                      // (27)
-  temp.set( S::auxOutPwr, auxPower );                                                      // (28)
-  temp.set( S::auxOutEnable, E::OFF );    // Signal unavailable. So, I can't test it.         (29)
+  temp( S::rfOutPwr, outPower );                                                           // (26)
+  temp( S::rfSoftEnable, E::ON );                                                          // (27)
+  temp( S::auxOutPwr, auxPower );                                                          // (28)
+  temp( S::auxOutEnable, E::OFF );        // Pin not connected. So, I can't test it.          (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
-  temp.set( S::auxFBselect, Feedback );                                                    // (30)
-  temp.set( S::muteTillLD, E::ON );                                                        // (31)
-  temp.set( S::vcoPwrDown, E::OFF );                                                       // (32)
+  temp( S::auxFBselect, Feedback );                                                        // (30)
+  temp( S::muteTillLD, E::ON );                                                            // (31)
+  temp( S::vcoPwrDown, E::OFF );                                                           // (32)
   constexpr auto BscClkDiv = ceil(Synthesis::PFD / Manifest::MIN_PFD);
   static_assert( (0 < BscClkDiv) && (256 > BscClkDiv) ); // Non-zero, 8 bit value.
-  temp.set( S::bndSelClkDv, u8(BscClkDiv) );                                               // (33)
+  temp( S::bndSelClkDv, u8(BscClkDiv) );                                                   // (33)
   // S::rfDivSelect                                                                           (34)
-  temp.set( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                           (35)
+  temp( S::rfFBselect, !Feedback );   /* EEK! Why the negation?                               (35)
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
-  temp.set( S::ledMode, LEDmode::lockDetect );                             // Ding. Winner!   (36)
+  temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
 System::pll = temp;  /* Save and exit scope (discarding temp). */ }
 /* Exit setup() */ }
+    // Shorthand, as it were.
   void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
   void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num); Serial.print(' '); };
   void pl(const    u16& arg, int num = DEC) { Serial.println(u32(arg), num); };
@@ -251,19 +252,19 @@ System::pll = temp;  /* Save and exit scope (discarding temp). */ }
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 namespace Interface {
   enum class PIN : u8 { UP = A0, DN = A7 };
-  constexpr auto factor{ 2 };
   class Touch {
     private:
+      static constexpr auto Gain{ 2 };
       PIN which;
       size_t Nsamples;
-      u16 offset, ref{ 0xffff }, adc{};
+      u16 offset{ Gain }, ref{ 0xffff }, adc{};
         // Based on AnalogTouch example.
       auto cal() -> void { 
         adc = analogTouchRead(static_cast<u8>(which), Nsamples);
         ;    if (adc < (ref >> offset)) ref = (adc << offset);
         else if (adc > (ref >> offset)) ref++; }
     public:
-    Touch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n }, offset{ factor } {}
+    Touch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n } {}
     virtual ~Touch() {}
       // Based on AnalogTouch example.
     const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; } };
@@ -271,11 +272,11 @@ namespace Interface {
     Serial.begin(1000000L); delay(1000L);
     using namespace System;
     auto ff{ 65.4321e6 }, df{ 5e3 };
-    pll.set(m( ff )).flush(); HW::wait(); pr(' '); pl(ff);
-    //pll.phaseAdjust(E::ON).set(m.phase(270)).flush();// pl(m.phase());
+    pll(m( ff )).flush(); HW::wait(); pr(' '); pl(ff);
+    //pll.phaseAdjust(E::ON)(m.phase(270)).flush();// pl(m.phase());
     Interface::Touch up(Interface::PIN::UP), dn(Interface::PIN::DN);
     while(1) {
       delay(100);
-      if(up()) { pll.set(m( ff+=df )).flush(); HW::wait(); pr('U'); pl(ff); }
-      if(dn()) { pll.set(m( ff-=df )).flush(); HW::wait(); pr('D'); pl(ff); }
+      if(up()) { pll(m( ff+=df )).flush(); HW::wait(); pr('U'); pl(ff); }
+      if(dn()) { pll(m( ff-=df )).flush(); HW::wait(); pr('D'); pl(ff); }
     } } // kd9fww
