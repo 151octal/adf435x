@@ -252,31 +252,31 @@ System::pll = temp;  /* Save and exit scope (discarding temp). */ }
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 namespace Interface {
   enum class PIN : u8 { UP = A0, DN = A7 };
-  class Touch {
+  class AnalogTouch {
     private:
       static constexpr auto Gain{ 2 };
       PIN which;
       size_t Nsamples;
       u16 offset{ Gain }, ref{ 0xffff }, adc{};
-        // Based on AnalogTouch example.
+        // Stolen from the AnalogTouch example.
       auto cal() -> void { 
         adc = analogTouchRead(static_cast<u8>(which), Nsamples);
         ;    if (adc < (ref >> offset)) ref = (adc << offset);
         else if (adc > (ref >> offset)) ref++; }
     public:
-    Touch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n } {}
-    virtual ~Touch() {}
-      // Based on AnalogTouch example.
+    AnalogTouch(PIN p, size_t n = 1) : which{ p }, Nsamples{ n } {}
+    virtual ~AnalogTouch() {}
+      // Stolen from the AnalogTouch example.
     const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; } };
 } auto loop() -> void {
     Serial.begin(1000000L); delay(1000L);
     using namespace System;
     auto ff{ 65.4321e6 }, df{ 5e3 };
-    pll(m( ff )).flush(); HW::wait(); pr(' '); pl(ff);
+    pll(m( ff )).flush(); HW::wait(); pr(' '); pl(m());
     //pll.phaseAdjust(E::ON)(m.phase(270)).flush();// pl(m.phase());
-    Interface::Touch up(Interface::PIN::UP), dn(Interface::PIN::DN);
+    Interface::AnalogTouch up(Interface::PIN::UP), dn(Interface::PIN::DN);
     while(1) {
       delay(100);
-      if(up()) { pll(m( ff+=df )).flush(); HW::wait(); pr('U'); pl(ff); }
-      if(dn()) { pll(m( ff-=df )).flush(); HW::wait(); pr('D'); pl(ff); }
+      if(up()) { pll(m( ff+=df )).flush(); HW::wait(); pr('U'); pl(m()); }
+      if(dn()) { pll(m( ff-=df )).flush(); HW::wait(); pr('D'); pl(m()); }
     } } // kd9fww
