@@ -249,7 +249,7 @@ System::pll = temp;  /* Save and exit scope (discarding temp). */ }
   void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 namespace Interface {
-  enum class PIN : u8 { TP0 = A0 };
+  enum class PIN : u8 { UP = A0, DN = A7 };
   constexpr auto factor{ 2 };
   class Touch {
     private:
@@ -265,11 +265,15 @@ namespace Interface {
       else if (adc > (ref >> offset)) ref++; }
         // auto dump() -> void { if( state() ) pr('1'); else pr('0'); pr(ref); pl(adc); }
     auto state() -> bool { cal(); return ((adc - (ref >> offset)) > 40) ? true : false; }  };
-} auto loop() -> void {//  Serial.begin(1000000L); delay(1000L);
+} auto loop() -> void {
+    Serial.begin(1000000L); delay(1000L);
     using namespace System;
-    auto f0{ 65.4321e6 };
-    pll.set(m.freq( f0 )).flush(); HW::wait();// pr(m.freq()); pl(m.freq()-f0);
-    //pll.phaseAdjust(E::ON).set(m.phase(270)).flush();// pr(m.phase()); pl(m.phase()-270);
-    using namespace Interface;
-    //Touch t(PIN::TP0);
-    while(1) { } } // kd9fww
+    auto ff{ 65.4321e6 }, df{ 5e3 };
+    pll.set(m.freq( ff )).flush(); HW::wait(); pr(' '); pl(ff);
+    //pll.phaseAdjust(E::ON).set(m.phase(270)).flush();// pl(m.phase());
+    Interface::Touch up(Interface::PIN::UP), dn(Interface::PIN::DN);
+    while(1) {
+      delay(100);
+      if(up.state()) { pll.set( m.freq(ff += df) ).flush(); HW::wait(); pr('U'); pl(ff); }
+      if(dn.state()) { pll.set( m.freq(ff -= df) ).flush(); HW::wait(); pr('D'); pl(ff); }
+    } } // kd9fww
