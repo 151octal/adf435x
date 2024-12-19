@@ -25,7 +25,7 @@ namespace System {
 class AnalogTouch {
   private:
     static constexpr auto Gain{ 2 };
-    H::P pin;
+    System::PIN pin;
     size_t Nsamples;
     u16 offset{ Gain }, ref{ 0xffff }, adc{};
       // Stolen from the AnalogTouch example.
@@ -38,7 +38,6 @@ class AnalogTouch {
   virtual ~AnalogTouch() {}
     // Stolen from the AnalogTouch example.
   const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  }; 
-    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 } namespace Synthesis {
   enum dBm : u8 { minus4, minus1, plus2, plus5 }; 
   enum PRSCL { four5ths = 0, eight9ths };
@@ -177,14 +176,15 @@ const LayoutSpecification * const Overlay::layoutSpec{ ADF435x };
   // Important: REF_ERROR is propagated by it's inclusion in the calculation of PFD <- actual_pfd
   static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
 enum Axis { FREQ, PHAS, AMPL, STEP };
+  /* ©2024 kd9fww */
 class Marker {
   using DBL = double;
   private:
     DBL pfd, spacing;
     State::Parameters loci{ State::INIT };
     static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
-      // Rotating phasor: f(t) = |magnitude| * pow( euleran, j( omega*t + phi(t) ))
-      //  Where: Amplitude <- |magnitude|, Frequency <- omega, Phase <- phi.
+    // Rotating phasor: f(t) = |magnitude| * pow( euleran, j( omega*t + phi(t) ))
+    //  Where: Amplitude <- |magnitude|, Frequency <- omega, Phase <- phi.
     auto amplitude() -> const u8 { return loci.outpwr; }
     auto amplitude(const dBm& a) -> const decltype(loci) { loci.outpwr = a; return loci; }
     auto delta() -> const decltype(spacing) { return spacing; }
@@ -215,24 +215,28 @@ class Marker {
   virtual ~Marker() {}
   explicit Marker( const DBL& actual_pfd, const DBL& step )
     : pfd{ actual_pfd }, spacing{ step } {}
-    // Marker argument dispatcher. Returns Axis selective loci of State::Parameters
+  auto dump() -> void {
+    using namespace System;
+    pr(operator()()); pr(operator()(AMPL)); pr(operator()(PHAS),3); pr('\n');
+   }
+      // Marker argument dispatcher. Returns Axis selective loci of State::Parameters
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
     case FREQ:  return omega(arg);
     case PHAS:  return phi(arg);
     case STEP:  return delta(arg);
     case AMPL:  return amplitude(static_cast<dBm>(arg)); } }
-    // Marker value dispatcher. Returns Axis selective value from State::Parameters
+      // Marker value dispatcher. Returns Axis selective value from State::Parameters
   const auto operator()(Axis axis = FREQ) -> const decltype(omega()) {
     switch (axis) {
       default:
       case FREQ:  return omega();
       case PHAS:  return phi();
       case STEP:  return delta();
-      case AMPL:  return static_cast<double>(amplitude()); } } };
+      case AMPL:  return static_cast<double>(amplitude()); } } }; }
     /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
-} auto setup() -> void {  // "And away we go." Gleason.
+auto setup() -> void {  // "And away we go." Gleason.
   using namespace System;
   SPI.begin();
   /* digitalWrite(static_cast<u8>(P::MUX), INPUT_PULLUP); */
@@ -240,8 +244,9 @@ class Marker {
   gate( E::OFF );
   pinMode(static_cast<u8>(P::LE0), OUTPUT);
   digitalWrite(static_cast<u8>(P::LE0), 1);
-  pinMode(static_cast<u8>(P::LD0), INPUT);   /* Lock detect. */
-} auto loop() -> void {
+  pinMode(static_cast<u8>(P::LD0), INPUT); }
+     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
+auto loop() -> void {
   Serial.begin(1000000L); delay(1000L);
   using namespace Synthesis;
 ; Ovl pll(H::P::LE0, H::P::LD0);  { /* Enter another scope. */ Ovl temp(H::P::LE0, H::P::LD0); /*
@@ -299,16 +304,16 @@ class Marker {
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
-; pll = temp;   } /* Save and exit scope (discarding temp). */
+; pll = temp;                     } /* Save and exit scope (discarding temp). */
   Marker mkr( PFD, CHANNEL_SEPARATION );
   using namespace System;
   auto F{ 65.4321e6 }, dF{ 5e3 };
-  pll( mkr(  minus1,AMPL) ).operator()( mkr(F) );
+  pll( mkr(minus1,AMPL) ).operator()( mkr(F) );
   pll( mkr(0/360.,PHAS) ).phaseAdjust(E::OFF).flush().lock();
   gate(E::ON);
-  pr(' '); pr(mkr()); pr(mkr(AMPL)); pr(mkr(PHAS),3); pr('\n');
+  pr(' '); mkr.dump();
   IO::AnalogTouch up(P::UP), down(P::DN), right(P::RGHT), left(P::LEFT);
 ; while(1) {
-    if(  up()) { pll(mkr(F+=dF)).flush().lock(); pr('U'); pr(mkr()); pr('\n'); }
-    if(down()) { pll(mkr(F-=dF)).flush().lock(); pr('D'); pr(mkr()); pr('\n'); }
+    if(  up()) { pll(mkr(F+=dF)).flush().lock(); pr('U'); mkr.dump(); }
+    if(down()) { pll(mkr(F-=dF)).flush().lock(); pr('D'); mkr.dump(); }
     delay(100); } } // kd9fww
