@@ -182,9 +182,23 @@ class Marker {
     static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
       // Rotating phasor: f(t) = |magnitude| * pow( euleran, j( omega*t + phi(t) ))
       //  Where: Amplitude <- |magnitude|, Frequency <- omega, Phase <- phi.
+    auto amplitude() -> const u8 { return loci.outpwr; }
+    auto amplitude(const dBm& a) -> const decltype(loci) { loci.outpwr = a; return loci; }
+    auto delta() -> const decltype(spacing) { return spacing; }
+    auto delta(const DBL& step) -> const decltype(loci) { spacing = step; return loci; }
+    auto phi() -> const DBL { return (loci.propo / DBL(loci.denom - 1)); }
+      #ifdef degrees
+      #define execrable_macro_name
+      #endif  // "What a bummer, eh?" Ian Anderson. "Good grief, Charlie Brown." C.M. Schulz.
+    auto phi(DBL normalized) -> const decltype(loci){ // nomalized is a function scope copy.
+        normalized = (0 > normalized) ? 0 : normalized;
+        normalized = (1 < normalized) ? 1 : normalized;
+        auto proportion{ u16(round(normalized * (loci.denom - 1))) };
+        loci.propo = (1 > proportion) ? 1 : proportion;
+        return loci; }
     auto omega() -> const DBL {
       return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.divis); }
-    auto omega(DBL freq) -> decltype(loci) {  // freq is a function scope copy.
+    auto omega(DBL freq) -> decltype(loci) {          // freq is a function scope copy.
       freq = (Manifest::MIN_FREQ < freq) ? freq : Manifest::MIN_FREQ;
       freq = (Manifest::MAX_FREQ > freq) ? freq : Manifest::MAX_FREQ;
       loci.divis = u16( floor( log2(Manifest::MAX_VCO / freq) ) );
@@ -194,32 +208,18 @@ class Marker {
       loci.denom = u16( round( pfd / spacing ) );
       loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
       return loci;  }
-    auto amplitude() -> const u8 { return loci.outpwr; }
-    auto amplitude(dBm a) -> const decltype(loci) { loci.outpwr = a; return loci; }
-    auto phi() -> const DBL { return (loci.propo / DBL(loci.denom - 1)); }
-      #ifdef degrees
-      #define execrable_macro_name
-      #endif  // "What a bummer, eh?" Ian Anderson. "Good grief, Charlie Brown." C.M. Schulz.
-    auto phi(DBL normalized) -> const decltype(loci){
-        normalized = (0 > normalized) ? 0 : normalized;
-        normalized = (1 < normalized) ? 1 : normalized;
-        auto proportion{ u16(round(normalized * (loci.denom - 1))) };
-        loci.propo = (1 > proportion) ? 1 : proportion;
-        return loci; }
-    auto delta() -> const decltype(spacing) { return spacing; }
-    auto delta(const DBL& step) -> const decltype(loci) { spacing = step; return loci; }
   public:
   virtual ~Marker() {}
   explicit Marker( const DBL& actual_pfd, const DBL& step )
     : pfd{ actual_pfd }, spacing{ step } {}
-    // Marker argument dispatcher. Returns Axis selective, loci of State::Parameters
+    // Marker argument dispatcher. Returns Axis selective loci of State::Parameters
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
     case FREQ:  return omega(arg);
     case PHAS:  return phi(arg);
     case STEP:  return delta(arg);
     case AMPL:  return amplitude(static_cast<dBm>(arg)); } }
-    // Marker value dispatcher. Returns Axis selective value.
+    // Marker value dispatcher. Returns Axis selective value from State::Parameters
   const auto operator()(Axis axis = FREQ) -> const decltype(omega()) {
     switch (axis) {
       default:
