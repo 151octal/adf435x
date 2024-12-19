@@ -8,6 +8,7 @@
 #include <ArxContainer.h>
 #include <SPI.h>
 #include <AnalogTouch.h>
+  namespace Util {
   // Shorthand for debugging with Serial.print()
   void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
   void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num);Serial.print(' ');};
@@ -16,10 +17,10 @@
   void pl(const    u32& arg, int num = DEC) { Serial.println(arg, num); };
   void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
   void pl(const double& arg, int num = 0  ) { Serial.println(arg, num); };
-namespace System {
+} namespace U = Util; namespace System {
   // Commented out, but wired:  D4
 ;  enum  PIN : u8 {     /* MUX = 4, */ PDR = 6,  LD = 7,    LE = 10,  // pll
-                         LEFT = A0,  DOWN = A1, UP = A2, RIGHT = A3   /* AnalogTouch*/ };
+                         LEFT = A1,  DOWN = A0, UP = A3, RIGHT = A2   /* AnalogTouch*/ };
   const auto wait = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
   const auto rfHardEnable = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
   const auto txSPI = [](void *pByte, int nByte) {
@@ -28,6 +29,9 @@ namespace System {
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
 } namespace Synthesis {
+  enum dBm : u8 { minus4, minus1, plus2, plus5 }; 
+  enum PRSCL { four5ths = 0, eight9ths };
+  enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -65,9 +69,8 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-} enum dBm : u8 { minus4, minus1, plus2, plus5 };
-namespace State { struct Parameters { u16 divis, whole, denom, numer, propo; u8 outpwr; };
-  constexpr Parameters INIT{ 0,0,0,0,1,minus4 };
+} namespace State { struct Parameters { u16 divis, whole, denom, numer, propo; u8 outpwr; };
+  constexpr Parameters INIT{ 0,0,0,0,1,Synthesis::minus4 };
 } enum Enable { OFF = 0, ON = 1 };  using E = Enable;
 namespace Synthesis {
   /* ©2024 kd9fww */
@@ -102,12 +105,18 @@ class Overlay {
     switch(sym) {
       default: return raw( sym,val );
       case S::fraction:     if(val !=  mem.numer) return raw( sym,mem.numer  = val ); break;
-      case S::integer:      if(val !=  mem.whole) return raw( sym,mem.whole  = val ); break;
+      case S::integer:      if(val !=  mem.whole) {
+                              auto prscl = (75 < val) ? PRSCL::eight9ths : PRSCL::four5ths;
+                              raw( S::prescaler,prscl );
+                              return raw( sym,mem.whole  = val ); break; }
       case S::phase:        if(val !=  mem.propo) return raw( sym,mem.propo  = val ); break;
-      case S::modulus:      if(val !=  mem.denom) return raw( sym,mem.denom  = val ); break;
+      case S::modulus:      if(val !=  mem.denom) {
+                              // noiseSpurMode
+                              return raw( sym,mem.denom  = val ); break; }
       case S::rfDivSelect:  if(val !=  mem.divis) return raw( sym,mem.divis  = val ); break;
-      case S::rfOutPwr:     if(static_cast<dBm>(val) != mem.outpwr)
-                              return raw( sym,mem.outpwr = static_cast<dBm>(val) ); break; } }
+      case S::rfOutPwr:     if(static_cast<dBm>(val) != mem.outpwr) {
+                              raw( S::rfSoftEnable, E::ON );
+                              return raw( sym,mem.outpwr = static_cast<dBm>(val) );   break; } } }
     // usage: object( loci ).operator()( loci ) ••• ad infinitum
   auto operator()( const State::Parameters& loci ) -> decltype(*this) {
     operator()( S::fraction,loci.numer ).operator()( S::integer,loci.whole );
@@ -151,7 +160,7 @@ const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
   // Important: REF_ERROR is propagated via it's inclusion in the calculation of PFD.
   static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
-} class Marker {
+class Marker {
   using DBL = double;
   private:
     DBL pfd, spacing;
@@ -189,12 +198,12 @@ const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
   auto delta(const DBL& increment) -> void { spacing = increment; } };
     /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
-auto setup() -> void {
+} auto setup() -> void {
   using namespace System;
   SPI.begin();
   /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
-  rfHardEnable( E::OFF );                      // For OnOffKeying (OOK) start with E::OFF.
+  rfHardEnable( E::OFF );
   pinMode(static_cast<u8>(PIN::LE), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
@@ -215,22 +224,21 @@ class AnalogTouch {
   AnalogTouch(System::PIN p, size_t n = 1) : pin{ p }, Nsamples{ n } {}
   virtual ~AnalogTouch() {}
     // Stolen from the AnalogTouch example.
-  const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  }; }
+  const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  }; 
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void {
+} auto loop() -> void {
   Serial.begin(1000000L); delay(1000L);
   using namespace Synthesis;
 ; Overlay pll;  { /* Enter another scope. */ Overlay temp; /*
   Quantiy S::_end calls of set() are required, in any order. Four set() calls are made for each
   mkr.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
-  //                                         S::fraction, S::integer, S::modulus      (1) (2) (3)
-  temp( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.     (4)
-  temp( S::phAdj, E::OFF );                                                                // (5)
-  enum PRSCL { four5ths = 0, eight9ths }; // (75 < WHOLE) ? PRSCL::eight9ths : PRSCL::four5ths)
-  temp( S::prescaler,PRSCL::eight9ths );                                                   // (6)
-  temp( S::counterReset, E::OFF );                                                         // (7)
-  temp( S::cp3state, E::OFF );                                                             // (8)
-  temp( S::idle, E::OFF );                                                                 // (9)
+  //                                         S::fraction, S::integer, S::modulus       (1) (2) (3)
+  temp( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
+  temp( S::phAdj, E::OFF );                                                                 // (5)
+  temp( S::prescaler,PRSCL::eight9ths );  // Possiblly redundant                            // (6)
+  temp( S::counterReset, E::OFF );                                                          // (7)
+  temp( S::cp3state, E::OFF );                                                              // (8)
+  temp( S::idle, E::OFF );                                                                  // (9)
   enum PDpolarity { negative = 0, positive };
   temp( S::pdPolarity, PDpolarity::positive );                                             // (10)
   enum LDPnS { ten = 0, six };            // Lock Detect Precision nanoSeconds
@@ -244,9 +252,7 @@ auto loop() -> void {
   temp( S::refDoubler, Synthesis::REF_DBLR );                                              // (17)
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
   temp( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                    (18)
-  constexpr enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 } nsMode = lowNoise;
-  //static_assert(( NoiseSpurMode::lowSpur == nsMode) ? (49 < MODULUS ? 1 : 0) : 1 );
-  temp( S::LnLsModes, nsMode );                                                            // (19)
+  temp( S::LnLsModes, lowNoise );                                                          // (19)
   constexpr auto CLKDIV32 = 150;          // I don't understand this, YET.
   //= round( PFD / MODULUS * 400e-6 ); // from datasheets'
   // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
@@ -255,17 +261,16 @@ auto loop() -> void {
   temp( S::clkDivider, CLKDIV );                                                           // (20)
   enum ClockingMode { dividerOff = 0, fastLock, phResync };
   temp( S::clkDivMode, ClockingMode::dividerOff );                                         // (21)
-  temp( S::csr, E::ON );              // Cycle Slip reduction                                 (22)
+  temp( S::csr, E::ON );                  // Cycle Slip reduction                             (22)
   temp( S::chrgCancel, E::OFF );                                                           // (23)
   enum ABPnS { nS6fracN = 0, nS3intN };   // AntiBacklash Pulse nanoSeconds
   temp( S::abp, ABPnS::nS6fracN );                                                         // (24)
   enum BndSelClkMd { automatic = 0, programmed };
   temp( S::bscMode,
   (Manifest::MIN_PFD < Synthesis::PFD) ? BndSelClkMd::programmed : BndSelClkMd::automatic);// (25)
-  constexpr enum dBm { minus4, minus1, plus2, plus5 } auxPower = minus4, outPower = plus5;
-  temp( S::rfOutPwr, outPower );                                                           // (26)
-  temp( S::rfSoftEnable, E::ON );                                                          // (27)
-  temp( S::auxOutPwr, auxPower );                                                          // (28)
+  temp( S::rfOutPwr, minus4 );            // Possiblly redundant                           // (26)
+  temp( S::rfSoftEnable, E::OFF );                                                         // (27)
+  temp( S::auxOutPwr, minus4 );                                                            // (28)
   temp( S::auxOutEnable, E::OFF );        // Pin not connected. So, I can't test it.          (29)
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
   temp( S::auxFBselect, Feedback );                                                        // (30)
@@ -286,9 +291,9 @@ auto loop() -> void {
   pll(mkr( ff )); pll(mkr.mag(dBm::plus5)).flush(); wait();
   pll(mkr.phi(60/3.6e2)).phaseAdjust(E::ON).flush();
   rfHardEnable(E::ON);
-  pr(' '); pr(mkr()); pr(u16(mkr.mag())); pl(mkr.phi(),3);
+  U::pr(' '); U::pr(mkr()); U::pr(u16(mkr.mag())); U::pl(mkr.phi(),3);
   IO::AnalogTouch up(PIN::UP), down(PIN::DOWN), right(PIN::RIGHT), left(PIN::LEFT);
 ; while(1) {
-    if(  up()) { pll(mkr( ff+=df )).flush(); wait(); pr('U'); pr(mkr()); }
-    if(down()) { pll(mkr( ff-=df )).flush(); wait(); pr('D'); pr(mkr()); }
+    if(  up()) { pll(mkr( ff+=df )).flush(); wait(); U::pr('U'); U::pl(mkr()); }
+    if(down()) { pll(mkr( ff-=df )).flush(); wait(); U::pr('D'); U::pl(mkr()); }
     delay(100); } } // kd9fww
