@@ -76,6 +76,7 @@ namespace Synthesis {
   /* ©2024 kd9fww */
 class Overlay {
   private:
+    NoiseSpurMode nsMode = lowNoise;
     static const LayoutSpecification* const layoutSpec;
     State::Parameters mem{ State::INIT };
     struct Device {
@@ -106,16 +107,15 @@ class Overlay {
       default: return raw( sym,val );
       case S::fraction:     if(val !=  mem.numer) return raw( sym,mem.numer  = val ); break;
       case S::integer:      if(val !=  mem.whole) {
-                              auto prscl = (75 < val) ? PRSCL::eight9ths : PRSCL::four5ths;
-                              raw( S::prescaler,prscl );
+      raw( S::prescaler,(75 < val) ? PRSCL::eight9ths : PRSCL::four5ths );
                               return raw( sym,mem.whole  = val ); break; }
       case S::phase:        if(val !=  mem.propo) return raw( sym,mem.propo  = val ); break;
       case S::modulus:      if(val !=  mem.denom) {
-                              // noiseSpurMode
+      raw( S::LnLsModes,nsMode = (lowSpur == nsMode) ? ((50 > val) ? lowNoise : nsMode) : nsMode);
                               return raw( sym,mem.denom  = val ); break; }
       case S::rfDivSelect:  if(val !=  mem.divis) return raw( sym,mem.divis  = val ); break;
       case S::rfOutPwr:     if(static_cast<dBm>(val) != mem.outpwr) {
-                              raw( S::rfSoftEnable, E::ON );
+      raw( S::rfSoftEnable, E::ON );
                               return raw( sym,mem.outpwr = static_cast<dBm>(val) );   break; } } }
     // usage: object( loci ).operator()( loci ) ••• ad infinitum
   auto operator()( const State::Parameters& loci ) -> decltype(*this) {
