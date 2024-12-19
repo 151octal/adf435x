@@ -1,4 +1,4 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 300 lines, 7K mem).
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in 350 lines, 11K mem).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
@@ -8,16 +8,13 @@
 #include <ArxContainer.h>
 #include <SPI.h>
 #include <AnalogTouch.h>
-  namespace Util {
+namespace System {
   // Shorthand for debugging with Serial.print()
-  void pr(                  const char& cc) {   Serial.print(cc); Serial.print(' '); }
-  void pr(const    u16& arg, int num = DEC) {   Serial.print(u32(arg), num);Serial.print(' ');};
-  void pr(const    u32& arg, int num = DEC) {   Serial.print(arg, num); Serial.print(' '); };
-  void pr(const double& arg, int num = 0  ) {   Serial.print(arg, num); Serial.print(' '); };
-} namespace U = Util; namespace System {
-  // Commented out, but wired:  D4
-;  enum  PIN : u8 {     /* MUX = 4, */ PDR = 6,  LD = 7,    LE = 10,  // pll
-                         LEFT = A1,  DOWN = A0, UP = A3, RIGHT = A2   /* AnalogTouch*/ };
+  void pr(                  const char& cc) { Serial.print(cc); Serial.print(' '); }
+  void pr(const    u16& arg, int num = DEC) { Serial.print(arg, num); pr(' '); };
+  void pr(const    u32& arg, int num = DEC) { Serial.print(arg, num); pr(' '); };
+  void pr(const double& arg, int num = 0  ) { Serial.print(arg, num); pr(' '); };
+  enum PIN : u8 { PDR = 6, LD = 7, LE = 10, LEFT = A1,  DOWN = A0, UP = A3, RIGHT = A2 };
   const auto wait = []() { while( !digitalRead( static_cast<u8>(PIN::LD) )); }; // Busy wait.
   const auto rfHardEnable = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
   const auto txSPI = [](void *pByte, int nByte) {
@@ -25,6 +22,24 @@
     digitalWrite( static_cast<u8>(PIN::LE), 0 );    // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(PIN::LE), 1 ); }; /* Data is latched on the rising edge. */
+} namespace IO {
+class AnalogTouch {
+  private:
+    static constexpr auto Gain{ 2 };
+    System::PIN pin;
+    size_t Nsamples;
+    u16 offset{ Gain }, ref{ 0xffff }, adc{};
+      // Stolen from the AnalogTouch example.
+    auto cal() -> void { 
+      adc = analogTouchRead(static_cast<u8>(pin), Nsamples);
+      ;    if (adc < (ref >> offset)) ref = (adc << offset);
+      else if (adc > (ref >> offset)) ref++; }
+  public:
+  AnalogTouch(System::PIN p, size_t n = 1) : pin{ p }, Nsamples{ n } {}
+  virtual ~AnalogTouch() {}
+    // Stolen from the AnalogTouch example.
+  const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  }; 
+    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 } namespace Synthesis {
   enum dBm : u8 { minus4, minus1, plus2, plus5 }; 
   enum PRSCL { four5ths = 0, eight9ths };
@@ -75,7 +90,7 @@ class Overlay {
   private:
     NoiseSpurMode nsMode = lowNoise;
     static const LayoutSpecification* const layoutSpec;
-    State::Parameters mem{ State::INIT };
+    State::Parameters store{ State::INIT };
     struct Device {
       static constexpr auto N{ 6 };
       using RegArray = std::array<u32, N>; /*
@@ -98,23 +113,24 @@ class Overlay {
       dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
       return *this; }
   public:
-    // raw() wrapper. usage: object( symA,valA ).operator()( symB,valB ) ••• ad infinitum
+    // Parameter Store interceptor for Symbol dispatch. usage:
+    // object( symA,valA ).operator()( symB,valB ) ••• ad infinitum
   auto operator()( const S& sym,const u16& val ) -> decltype(*this) { switch(sym) {
       default: return raw( sym,val );
-      case S::fraction:     if(val !=  mem.numer) return raw( sym,mem.numer  = val ); break;
-      case S::integer:      if(val !=  mem.whole) { // S::prescaler side effect
+      case S::fraction:     if(val !=  store.numer) return raw( sym,store.numer  = val ); break;
+      case S::integer:      if(val !=  store.whole) { // S::prescaler side effect
         raw( S::prescaler,(75 < val) ? PRSCL::eight9ths : PRSCL::four5ths );
-        return raw( sym,mem.whole  = val ); break; }
-      case S::phase:        if(val !=  mem.propo) return raw( sym,mem.propo  = val ); break;
-      case S::modulus:      if(val !=  mem.denom) { // S::LnLsModes side effect
+        return raw( sym,store.whole  = val ); break; }
+      case S::phase:        if(val !=  store.propo) return raw( sym,store.propo  = val ); break;
+      case S::modulus:      if(val !=  store.denom) { // S::LnLsModes side effect
         raw( S::LnLsModes,nsMode =
         (lowSpur == nsMode) ? ((50 > val) ? lowNoise : nsMode) : nsMode);
-        return raw( sym,mem.denom  = val ); break; }
-      case S::rfDivSelect:  if(val !=  mem.divis) return raw( sym,mem.divis  = val ); break;
-      case S::rfOutPwr:     if(static_cast<dBm>(val) != mem.outpwr){// S::rfSoftEnable side effect
+        return raw( sym,store.denom  = val ); break; }
+      case S::rfDivSelect:  if(val !=  store.divis) return raw( sym,store.divis  = val ); break;
+      case S::rfOutPwr:     if(static_cast<dBm>(val) != store.outpwr){// S::rfSoftEnable side effect
         raw( S::rfSoftEnable, E::ON );
-        return raw( sym,mem.outpwr = static_cast<dBm>(val) );   break; } } }
-    // usage: object( loci ).operator()( loci ) ••• ad infinitum
+        return raw( sym,store.outpwr = static_cast<dBm>(val) );   break; } } }
+    // Usage: object( loci ).operator()( loci ) ••• ad infinitum
   auto operator()( const State::Parameters& loci ) -> decltype(*this) {
     operator()( S::fraction,loci.numer ).operator()( S::integer,loci.whole );
     operator()( S::modulus,loci.denom ).operator()( S::phase,loci.propo );
@@ -135,11 +151,11 @@ class Overlay {
     SPI.endTransaction(); }
   auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
   } final; /* ©2024 kd9fww */
-const LayoutSpecification* const Overlay::layoutSpec{ ADF435x }; 
+const LayoutSpecification * const Overlay::layoutSpec{ ADF435x }; 
 } namespace Manifest {
-    // PFD: Phase Frequency Detector (in units of Hertz).
-    constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };         // Manifest fact ...
-    constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };         // ... from the datasheet
+    // PFD: Phase Frequency Detector                          // Manifest data ...
+    constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };       // (in units of Hertz)
+    constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };       // ... from the datasheet
     constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
 } namespace Synthesis {
   constexpr  u16  REF_COUNTER{ 8 };                 // Use 80 for 10e6 = OSC.
@@ -155,7 +171,7 @@ const LayoutSpecification* const Overlay::layoutSpec{ ADF435x };
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
   constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
-  // Important: REF_ERROR is propagated via it's inclusion in the calculation of PFD.
+  // Important: REF_ERROR is propagated by it's inclusion in the calculation of PFD <- actual_pfd
   static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
 enum Axis { FREQ, PHAS, AMPL, STEP };
 class Marker {
@@ -164,10 +180,10 @@ class Marker {
     DBL pfd, spacing;
     State::Parameters loci{ State::INIT };
     static auto log2(DBL arg) -> DBL { return log10(arg) / log10(2); };
-    /* Rotating phasor: f(t) = |magnitude| * pow( euleran, j( omega*t + phi(t) )).
-    Where: Amplitude <- |magnitude|, Frequency <- omega, Phase <- phi. */
-    const auto omega() -> DBL {
-      return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.divis); } const
+      // Rotating phasor: f(t) = |magnitude| * pow( euleran, j( omega*t + phi(t) ))
+      //  Where: Amplitude <- |magnitude|, Frequency <- omega, Phase <- phi.
+    auto omega() -> const DBL {
+      return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.divis); }
     auto omega(DBL freq) -> decltype(loci) {  // freq is a function scope copy.
       freq = (Manifest::MIN_FREQ < freq) ? freq : Manifest::MIN_FREQ;
       freq = (Manifest::MAX_FREQ > freq) ? freq : Manifest::MAX_FREQ;
@@ -178,42 +194,42 @@ class Marker {
       loci.denom = u16( round( pfd / spacing ) );
       loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
       return loci;  }
-    const auto amp() -> u8 { return loci.outpwr; } const
-    auto amp(dBm p) -> decltype(loci) { loci.outpwr = p; return loci; }
-    const auto phi() -> DBL { return (loci.propo / DBL(loci.denom - 1)); } const
+    auto amplitude() -> const u8 { return loci.outpwr; }
+    auto amplitude(dBm a) -> const decltype(loci) { loci.outpwr = a; return loci; }
+    auto phi() -> const DBL { return (loci.propo / DBL(loci.denom - 1)); }
       #ifdef degrees
       #define execrable_macro_name
       #endif  // "What a bummer, eh?" Ian Anderson. "Good grief, Charlie Brown." C.M. Schulz.
-    auto phi(DBL normalized) -> decltype(loci){
+    auto phi(DBL normalized) -> const decltype(loci){
         normalized = (0 > normalized) ? 0 : normalized;
         normalized = (1 < normalized) ? 1 : normalized;
         auto proportion{ u16(round(normalized * (loci.denom - 1))) };
         loci.propo = (1 > proportion) ? 1 : proportion;
         return loci; }
-    auto delta() -> decltype(spacing) { return spacing; } const
-    auto delta(const DBL& increment) -> decltype(loci) { spacing = increment; return loci;}
+    auto delta() -> const decltype(spacing) { return spacing; }
+    auto delta(const DBL& step) -> const decltype(loci) { spacing = step; return loci; }
   public:
   virtual ~Marker() {}
-  explicit Marker( const DBL& actual_pfd, const DBL& increment )
-    : pfd{ actual_pfd }, spacing{ increment } {}
-    // Marker argument dispatcher
-  auto operator()(DBL arg, Axis axis = FREQ) -> decltype(loci) { switch(axis) {
+  explicit Marker( const DBL& actual_pfd, const DBL& step )
+    : pfd{ actual_pfd }, spacing{ step } {}
+    // Marker argument dispatcher. Returns Axis selective, loci of State::Parameters
+  auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
     case FREQ:  return omega(arg);
     case PHAS:  return phi(arg);
     case STEP:  return delta(arg);
-    case AMPL:  return amp(static_cast<dBm>(arg)); } }
-    // Marker value dispatcher
-  const auto operator()(Axis axis = FREQ) -> decltype(omega()) {
+    case AMPL:  return amplitude(static_cast<dBm>(arg)); } }
+    // Marker value dispatcher. Returns Axis selective value.
+  const auto operator()(Axis axis = FREQ) -> const decltype(omega()) {
     switch (axis) {
       default:
       case FREQ:  return omega();
       case PHAS:  return phi();
       case STEP:  return delta();
-      case AMPL:  return static_cast<double>(amp()); } } };
+      case AMPL:  return static_cast<double>(amplitude()); } } };
     /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
-} auto setup() -> void {
+} auto setup() -> void {  // "And away we go." Gleason.
   using namespace System;
   SPI.begin();
   /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
@@ -223,24 +239,6 @@ class Marker {
   digitalWrite(static_cast<u8>(PIN::LE), 1);  /* Latch on rising edge:
     To accomplish SPI, first LE(1 to 0), 'wiggle' the data line, then LE(0 to 1). See txSPI(). */
   pinMode(static_cast<u8>(PIN::LD), INPUT);   /* Lock detect. */
-} namespace IO {
-class AnalogTouch {
-  private:
-    static constexpr auto Gain{ 2 };
-    System::PIN pin;
-    size_t Nsamples;
-    u16 offset{ Gain }, ref{ 0xffff }, adc{};
-      // Stolen from the AnalogTouch example.
-    auto cal() -> void { 
-      adc = analogTouchRead(static_cast<u8>(pin), Nsamples);
-      ;    if (adc < (ref >> offset)) ref = (adc << offset);
-      else if (adc > (ref >> offset)) ref++; }
-  public:
-  AnalogTouch(System::PIN p, size_t n = 1) : pin{ p }, Nsamples{ n } {}
-  virtual ~AnalogTouch() {}
-    // Stolen from the AnalogTouch example.
-  const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  }; 
-    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 } auto loop() -> void {
   Serial.begin(1000000L); delay(1000L);
   using namespace Synthesis;
@@ -300,16 +298,15 @@ class AnalogTouch {
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
 ; pll = temp;   } /* Save and exit scope (discarding temp). */
+  Marker mkr( PFD, CHANNEL_SPACING );
   using namespace System;
-  using M = Marker;
-  M mkr( Synthesis::PFD, Synthesis::CHANNEL_SPACING );
   auto F{ 65.4321e6 }, dF{ 5e3 };
-  pll( mkr(  minus1,AMPL) ).operator()( mkr(F) ).flush(); wait();
-  pll( mkr(180/360.,PHAS) ).phaseAdjust(E::OFF).flush();  // phase noise tuning
+  pll( mkr(  minus1,AMPL) ).operator()( mkr(F) );
+  pll( mkr(0/360.,PHAS) ).phaseAdjust(E::OFF).flush(); wait();
   rfHardEnable(E::ON);
-  U::pr(' '); U::pr(mkr()); U::pr(mkr(AMPL)); U::pr(mkr(PHAS),3); U::pr('\n');
+  pr(' '); pr(mkr()); pr(mkr(AMPL)); pr(mkr(PHAS),3); pr('\n');
   IO::AnalogTouch up(PIN::UP), down(PIN::DOWN), right(PIN::RIGHT), left(PIN::LEFT);
 ; while(1) {
-    if(  up()) { pll(mkr(F+=dF)).flush(); wait(); U::pr('U'); U::pr(mkr()); U::pr('\n'); }
-    if(down()) { pll(mkr(F-=dF)).flush(); wait(); U::pr('D'); U::pr(mkr()); U::pr('\n'); }
+    if(  up()) { pll(mkr(F+=dF)).flush(); wait(); pr('U'); pr(mkr()); pr('\n'); }
+    if(down()) { pll(mkr(F-=dF)).flush(); wait(); pr('D'); pr(mkr()); pr('\n'); }
     delay(100); } } // kd9fww
