@@ -17,8 +17,8 @@ namespace System {
                   DN = A0, LEFT = A1, RGHT = A2, UP = A3 };
   using P = PIN;
   enum UNIT { A, B, _END };
-  constexpr struct IO { P le, ld; } unit[] = { [A] = { LE0, LD0 }, [B] = { LE1, LD1 } };
-  static_assert(_END == sizeof(unit) / sizeof(unit[0]));
+  constexpr struct IO { P le, ld; } pll[] = { [A] = { LE0, LD0 }, [B] = { LE1, LD1 } };
+  static_assert(_END == sizeof(pll) / sizeof(pll[0]));
   const auto wait = [](const P& ld) { while( !digitalRead( static_cast<u8>(ld) )); }; // Busy wait
   const auto gate = [](bool enbl) { digitalWrite( static_cast<u8>(P::PDR), enbl ); };
   const auto txSPI = [](const P& le, void *pByte, int nByte) {
@@ -121,7 +121,7 @@ class Overlay {
     char cx{ 0 };
     switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
       default:  break;                    /* Otherwise: say they're all dirty. */
-      case  0:  return *this;;                   /* None dirty. */
+      case  0:  return *this;;            /* None dirty. */
       case  1:  cx = dev.N - 1; break;    /* r0 ••• */
       case  2:  /* fall thru */           /* r1 ••• */
       case  3:  cx = dev.N - 2; break;    /* r1 and r0 ••• */
@@ -158,7 +158,7 @@ class Overlay {
     operator()( S::modulus,loci.denom ).operator()( S::phase,loci.propo );
     operator()( S::rfDivSelect,loci.divis ).operator()( S::rfOutPwr,loci.outpwr );
     return *this;  }
-  } final; using Ovl = Overlay;
+  } final; using OVL = Overlay;
 const LayoutSpecification * const Overlay::layoutSpec{ ADF435x }; 
 } namespace Manifest {
     // PFD: Phase Frequency Detector                          // Manifest data ...
@@ -253,7 +253,7 @@ auto setup() -> void {  // "And away we go." Gleason.
 auto loop() -> void {
   Serial.begin(1000000L); delay(1000L);
   using namespace Synthesis;
-; Ovl pll;    { /* Enter another scope. */ Ovl temp; /*
+; OVL overlay;    { /* Enter another scope. */ OVL temp; /*
   Quantiy S::_end calls of set() are required, in any order. Four set() calls are made for each
   mkr.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus       (1) (2) (3)
@@ -308,21 +308,26 @@ auto loop() -> void {
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
-; pll = temp; } /* Save and exit scope (discarding temp). */
+; overlay = temp; } /* Save and exit scope (discarding temp). */
   Marker mkr( PFD, RESOLUTION );
   using namespace System;
-  pll( unit[A] );
+  overlay( pll[A] );                                                    // Get ready.
   auto F{ 75e6 }, dF{ 3.125e3 };
-  pll( mkr(minus1,AMPL) ).operator()( mkr(F-=dF) );
-  pll( mkr(0/360.,PHAS) ).phaseAdjust(E::OFF).flush().lock();
-  gate(E::ON);
+  F -= dF;
+  overlay( mkr(minus1,AMPL) ).operator()( mkr(F) );
+  overlay( mkr(90/360.,PHAS) ).phaseAdjust(E::ON).flush().lock();       // TaDa.
+  gate(E::ON);                                                          // Oh, yeah.
   pr(' '); mkr.dump();
+  overlay( pll[B] );                                                    // Get really ready.
+  overlay( mkr(270/360.,PHAS) ).flush().lock();                         // Shazam.
+  pr(' '); mkr.dump();                                                  // No change.
+  overlay( pll[A] );
   InputOutput::AnalogTouch up(P::UP), down(P::DN), right(P::RGHT), left(P::LEFT);
   bool direction{ true };
 ; while(1) {
     if(100e6 < F) direction = false;
     else if (35e6 > F) direction = true;
-    pll(mkr( F += (true == direction) ? dF : -dF )).flush().lock(); pr(' '); mkr.dump();
+    overlay(mkr( F += (true == direction) ? dF : -dF )).flush().lock(); pr(' '); mkr.dump();
     if(  up()) { direction = true; pr('U'); mkr.dump(); }
     if(down()) { direction = false; pr('D'); mkr.dump(); }
     delay(5000); } } // kd9fww
