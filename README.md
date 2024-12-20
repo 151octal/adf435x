@@ -59,8 +59,8 @@
   ISP.5:RESET
   ISP.6:GND-------------OLED:GND, KNOB:GND
   h.3:RST---------------OLED:RESET
-  h.5:D2(INT0)----------KNOB:A
-  h.6:D3(INT1)----------KNOB:B
+  h.5:D2(INT0)----------KNOB:J
+  h.6:D3(INT1)----------KNOB:K
   h.29:(system.pwr.return---GND: Nano.reg5 return)
   h.30:(system.pwr.supply---VIN: Nano.reg5 input)
   ------------------------------------------------------------------------------------------------

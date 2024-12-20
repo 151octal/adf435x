@@ -220,10 +220,7 @@ class Marker {
       case FREQ:  return omega();
       case PHAS:  return phi();
       case STEP:  return delta();
-      case AMPL:  return static_cast<double>(amplitude()); } }
-      // Wrapper for operator()(DBL,Axis)
-  const auto set(DBL arg, Axis axis = FREQ) -> const decltype(loci) {
-    return operator()(arg, axis); } }; }
+      case AMPL:  return static_cast<double>(amplitude()); } } }; }
     /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {  // "And away we go." Gleason.
@@ -241,7 +238,7 @@ auto loop() -> void {
   using namespace Synthesis;
 ; OVL pll;    { /* Enter another scope. */ OVL temp; /*
   Quantiy S::_end calls of set() are required, in any order. Four set() calls are made for each
-  m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
+  mk.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus       (1) (2) (3)
   temp( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
   temp( S::phAdj, E::OFF );                                                                 // (5)
@@ -295,18 +292,18 @@ auto loop() -> void {
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
 ; pll = temp; } /* Save and exit scope (discarding temp). */
-  Marker m( PFD, RESOLUTION );
+  Marker mk( PFD, RESOLUTION );
   using namespace System;
   pll( ctrl[A] );
   auto F{ 99.5e6 }, dF{ 3.125e3 };
   F -= dF;
-  pll( m(minus1,AMPL) ).set( m(F) ).set( m(0/360.,PHAS) ).phaseAdjust(E::OFF).flush().lock();
+  pll( mk(minus1,AMPL) ).set( mk(F) ).set( mk(0/360.,PHAS) ).phaseAdjust(E::OFF).flush().lock();
   gate(E::ON);
-  pr(' '); m.dump();
-  //pll( ctrl[B] ); pll( m(270/360.,PHAS) ).flush().lock(); pr(' '); m.dump(); pll( ctrl[A] );
+  pr(' '); mk.dump();
+  //pll( ctrl[B] ); pll( mk(270/360.,PHAS) ).flush().lock(); pr(' '); mk.dump(); pll( ctrl[A] );
   bool dir{ true };
 ; while(1) {
     if(100e6 < F) dir = false;
     else if (Manifest::MIN_FREQ > F) dir = true;
-    pll(m( F += (true == dir) ? dF : -dF )).flush().lock(); pr(' '); m.dump();
+    pll(mk( F += (true == dir) ? dF : -dF )).flush().lock(); pr(' '); mk.dump();
     delay(100); } } // kd9fww
