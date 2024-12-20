@@ -206,9 +206,6 @@ class Marker {
   auto dump() -> void {
     using namespace System;
     pr(operator()()); pr(operator()(AMPL)); pr(operator()(PHAS),3); pr('\n'); }
-      // Wrapper for operator()(DBL,Axis)
-  const auto set(DBL arg, Axis axis = FREQ) -> const decltype(loci) {
-    return operator()(arg, axis); }
       // Marker argument dispatcher. Returns Axis selective loci of State::Parameters
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
@@ -223,7 +220,10 @@ class Marker {
       case FREQ:  return omega();
       case PHAS:  return phi();
       case STEP:  return delta();
-      case AMPL:  return static_cast<double>(amplitude()); } } }; }
+      case AMPL:  return static_cast<double>(amplitude()); } }
+      // Wrapper for operator()(DBL,Axis)
+  const auto set(DBL arg, Axis axis = FREQ) -> const decltype(loci) {
+    return operator()(arg, axis); } }; }
     /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void {  // "And away we go." Gleason.
