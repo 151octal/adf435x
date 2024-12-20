@@ -3,47 +3,28 @@
   https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
+#include <ArxContainer.h>
 #include <SPI.h>
-#include <AnalogTouch.h>  // https://github.com/NicoHood/AnalogTouch
-#include <ArxContainer.h> // https://github.com/hideakitai/ArxContainer
 namespace System {
   // Shorthand for debugging with Serial.print()
   void pr(                  const char& cc) { Serial.print(cc); Serial.print(' '); }
   void pr(const    u16& arg, int num = DEC) { Serial.print(arg, num); pr(' '); };
   void pr(const    u32& arg, int num = DEC) { Serial.print(arg, num); pr(' '); };
   void pr(const double& arg, int num = 0  ) { Serial.print(arg, num); pr(' '); };
-  enum PIN : u8 { EA = 2, EB = 3, MUX = 4, PDR = 6, 
-                  LD0 = 7, LD1 = 8, LE1 = 9, LE0 = 10,
-                  DN = A0, LEFT = A1, RGHT = A2, UP = A3 };
+  enum PIN : u8 { encJ = 2, encK = 3, MUX = 4, PDR = 6, LD_A = 7, LE_A = 10 };
   using P = PIN;
-  enum UNIT { A, B, _END };
-  constexpr struct IO { P le, ld; } pll[] = { [A] = { LE0, LD0 }, [B] = { LE1, LD1 } };
-  static_assert(_END == sizeof(pll) / sizeof(pll[0]));
-  const auto wait = [](const P& ld) { while( !digitalRead( static_cast<u8>(ld) )); }; // Busy wait
-  const auto gate = [](bool enbl) { digitalWrite( static_cast<u8>(P::PDR), enbl ); };
-  const auto txSPI = [](const P& le, void *pByte, int nByte) {
+  enum UNIT { A, /* B, */ _END };
+  struct PLL_IO { PIN le, ld; };
+  constexpr PLL_IO ctrl[] = { [A] = { LE_A, LD_A } };//, [B] = { LE_B, LD_B } };
+  static_assert(_END == sizeof(ctrl) / sizeof(ctrl[0]));
+  const auto wait = [](const PIN& ld) { while( !digitalRead( static_cast<u8>(ld) )); };
+  const auto gate = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
+  const auto txSPI = [](const PIN& le, void *pByte, int nByte) {
     auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
-} namespace HW = System; namespace InputOutput {
-class AnalogTouch {
-  private:
-    static constexpr auto Gain{ 2 };
-    System::PIN pin;
-    size_t Nsamples;
-    u16 offset{ Gain }, ref{ 0xffff }, adc{};
-      // Stolen from the AnalogTouch example.
-    auto cal() -> void { 
-      adc = analogTouchRead(static_cast<u8>(pin), Nsamples);
-      ;    if (adc < (ref >> offset)) ref = (adc << offset);
-      else if (adc > (ref >> offset)) ref++; }
-  public:
-  AnalogTouch(System::PIN p, size_t n = 1) : pin{ p }, Nsamples{ n } {}
-  virtual ~AnalogTouch() {}
-    // Stolen from the AnalogTouch example.
-  const auto operator()() -> bool { cal(); return adc - (ref>>offset) > 40 ? true : false; }  }; 
-} namespace Synthesis {
+} namespace HW = System; namespace Synthesis {
   enum dBm : u8 { minus4, minus1, plus2, plus5 }; 
   enum PRSCL { four5ths = 0, eight9ths };
   enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
@@ -134,7 +115,7 @@ class Overlay {
   auto lock() -> void { System::wait(ld); }
   auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
   auto operator()( const System::PIN& _le, System::PIN& _ld ) -> void { le = _le; ld =_ld; }
-  auto operator()( const System::IO& io ) -> void { le = io.le; ld = io.ld; }
+  auto operator()( const System::PLL_IO& io ) -> void { le = io.le; ld = io.ld; }
     // Parameter Store interceptor for Symbol dispatch. usage:
     // object( symA,valA ).operator()( symB,valB ) ••• ad infinitum
   auto operator()( const S& sym,const u16& val ) -> decltype(*this) { switch(sym) {
@@ -158,6 +139,8 @@ class Overlay {
     operator()( S::modulus,loci.denom ).operator()( S::phase,loci.propo );
     operator()( S::rfDivSelect,loci.divis ).operator()( S::rfOutPwr,loci.outpwr );
     return *this;  }
+    // Wrapper for operator()(State::Parameters)
+  auto set( const State::Parameters& loci ) -> decltype(*this) { return operator()( loci ); }
   } final; using OVL = Overlay;
 const LayoutSpecification * const Overlay::layoutSpec{ ADF435x }; 
 } namespace Manifest {
@@ -223,6 +206,9 @@ class Marker {
   auto dump() -> void {
     using namespace System;
     pr(operator()()); pr(operator()(AMPL)); pr(operator()(PHAS),3); pr('\n'); }
+      // Wrapper for operator()(DBL,Axis)
+  const auto set(DBL arg, Axis axis = FREQ) -> const decltype(loci) {
+    return operator()(arg, axis); }
       // Marker argument dispatcher. Returns Axis selective loci of State::Parameters
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
@@ -243,19 +229,19 @@ class Marker {
 auto setup() -> void {  // "And away we go." Gleason.
   using namespace System;
   SPI.begin();
-  /* digitalWrite(static_cast<u8>(P::MUX), INPUT_PULLUP); */
-  pinMode(static_cast<u8>(P::PDR), OUTPUT); // Rf output enable.
+  /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
+  pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
   gate( E::OFF );
-  pinMode(static_cast<u8>(P::LE0), OUTPUT);
-  digitalWrite(static_cast<u8>(P::LE0), 1);
-  pinMode(static_cast<u8>(P::LD0), INPUT); }
+  pinMode(static_cast<u8>(PIN::LE_A), OUTPUT);
+  digitalWrite(static_cast<u8>(PIN::LE_A), 1);
+  pinMode(static_cast<u8>(PIN::LD_A), INPUT); }
      // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void {
   Serial.begin(1000000L); delay(1000L);
   using namespace Synthesis;
-; OVL overlay;    { /* Enter another scope. */ OVL temp; /*
+; OVL pll;    { /* Enter another scope. */ OVL temp; /*
   Quantiy S::_end calls of set() are required, in any order. Four set() calls are made for each
-  mkr.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
+  m.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
   //                                         S::fraction, S::integer, S::modulus       (1) (2) (3)
   temp( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
   temp( S::phAdj, E::OFF );                                                                 // (5)
@@ -308,26 +294,19 @@ auto loop() -> void {
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   enum LEDmode { low = 0, lockDetect = 1, high = 3 };
   temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
-; overlay = temp; } /* Save and exit scope (discarding temp). */
-  Marker mkr( PFD, RESOLUTION );
+; pll = temp; } /* Save and exit scope (discarding temp). */
+  Marker m( PFD, RESOLUTION );
   using namespace System;
-  overlay( pll[A] );                                                    // Get ready.
-  auto F{ 75e6 }, dF{ 3.125e3 };
+  pll( ctrl[A] );
+  auto F{ 99.5e6 }, dF{ 3.125e3 };
   F -= dF;
-  overlay( mkr(minus1,AMPL) ).operator()( mkr(F) );
-  overlay( mkr(90/360.,PHAS) ).phaseAdjust(E::ON).flush().lock();       // TaDa.
-  gate(E::ON);                                                          // Oh, yeah.
-  pr(' '); mkr.dump();
-  overlay( pll[B] );                                                    // Get really ready.
-  overlay( mkr(270/360.,PHAS) ).flush().lock();                         // Shazam.
-  pr(' '); mkr.dump();                                                  // No change.
-  overlay( pll[A] );
-  InputOutput::AnalogTouch up(P::UP), down(P::DN), right(P::RGHT), left(P::LEFT);
-  bool direction{ true };
+  pll( m(minus1,AMPL) ).set( m(F) ).set( m(0/360.,PHAS) ).phaseAdjust(E::OFF).flush().lock();
+  gate(E::ON);
+  pr(' '); m.dump();
+  //pll( ctrl[B] ); pll( m(270/360.,PHAS) ).flush().lock(); pr(' '); m.dump(); pll( ctrl[A] );
+  bool dir{ true };
 ; while(1) {
-    if(100e6 < F) direction = false;
-    else if (35e6 > F) direction = true;
-    overlay(mkr( F += (true == direction) ? dF : -dF )).flush().lock(); pr(' '); mkr.dump();
-    if(  up()) { direction = true; pr('U'); mkr.dump(); }
-    if(down()) { direction = false; pr('D'); mkr.dump(); }
-    delay(5000); } } // kd9fww
+    if(100e6 < F) dir = false;
+    else if (Manifest::MIN_FREQ > F) dir = true;
+    pll(m( F += (true == dir) ? dF : -dF )).flush().lock(); pr(' '); m.dump();
+    delay(100); } } // kd9fww
