@@ -5,22 +5,24 @@
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
 #include <ArxContainer.h>
 #include <SPI.h>
-  void pc(                  const char& cc) { Serial.print(cc); }
-  void pr(                  const char& cc) {                 pc(cc); pc(' '); }
-  void pr(const    u16& arg, int num = DEC) { Serial.print(arg, num); pc(' '); };
-  void pr(const    u32& arg, int num = DEC) { Serial.print(arg, num); pc(' '); };
-  void pr(const double& arg, int num = 0  ) { Serial.print(arg, num); pc(' '); };
-  void pb(const    u32& arg,    u8 nb = 32) { while( nb ) { switch(nb) {
-      default: break;  case 8: case 16: case 24: pc(' '); break; }  // Byte sized chunks,
-    pc( ((1UL << --nb) & arg) ? '1' : '0' ); } pc(' '); }           // one bit at a time.
-namespace System {
+  enum Enable { OFF = 0, ON = 1 };
+  // Shorthand
+  void pr(                       const char& cc ) { Serial.print(cc); }
+  void pr(   const double& arg,     int num = 0 ) { Serial.print(arg, num); pr(' '); }
+  void pr(     const  u16& arg,   int num = DEC ) { Serial.print(arg, num); pr(' '); }
+  void pr(     const  u32& arg,   int num = DEC ) { Serial.print(arg, num); pr(' '); }
+  void pr( const char* const s, const  u16& arg, int num = DEC ) { Serial.print(s); pr(arg,num); }
+  void pb(     const  u32& arg,      u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary...
+      default: break;  case 8: case 16: case 24: pr(' '); break; }  // in byte sized chunks,
+    pr( ((1UL << --nb) & arg) ? '1' : '0' ); } pr(' '); }           // one bit at a time.
+; namespace System {
   enum PIN : u8 { encJ = 2, encK = 3, MUX = 4, PDR = 6, LD_A = 7, LE_A = 10 };
-  enum UNIT { A, /* B, */ _END };
-  struct PLL_CONTROL { PIN le, ld; };
-  constexpr PLL_CONTROL ctrl[] = { [A] = { LE_A, LD_A } };//, [B] = { LE_B, LD_B } };
-  static_assert(_END == sizeof(ctrl) / sizeof(ctrl[0]));
-  auto log2(double arg) -> double { return log10(arg) / log10(2); };
+  enum UNIT { A, /* B, */ _end };
+  constexpr struct CTRL { PIN le, ld; } ctrl[] = { [A] = { LE_A, LD_A } };/*
+    , [B] = { LE_B, LD_B } };*/
+  static_assert(UNIT::_end == sizeof(ctrl) / sizeof(ctrl[0]));
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
+  auto  log2(double arg) -> double { return log10(arg) / log10(2); };
   const auto rf = [](bool enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   const auto tx = [](const PIN& le, void *pByte, int nByte) {
     auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
@@ -67,60 +69,56 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
-  static_assert(S::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-} namespace State { struct Parameters { u16 divis, whole, denom, numer, propo; u8 outpwr; };
-  constexpr Parameters INIT{ 0,0,0,0,1,Synthesis::minus4 };
-} enum Enable { OFF = 0, ON = 1 };
-namespace Synthesis {
+  static_assert(Symbol::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
+} namespace State { struct Parameters { u16 divis, whole, denom, numer, propo; u8 rfpwr; };
+  constexpr Parameters INIT{ 0, 0, 1, 0, 1, Synthesis::minus4 };
+} namespace Synthesis {
+  constexpr auto N_REGISTERS{ 6 };
   /* ©2024 kd9fww */
-class Overlay {
+class SpecifiedOvelay {
   private:
     System::PIN le{ System::ctrl[System::UNIT::A].le }, ld{ System::ctrl[System::UNIT::A].ld };
     NoiseSpurMode nsMode = lowNoise;
     static const LayoutSpecification* const layoutSpec;
     State::Parameters store{ State::INIT };
-    struct Device {
-      static constexpr auto N{ 6 };
+    struct Overlay {
+      static constexpr size_t N{ N_REGISTERS };
       using RegArray = std::array<u32, N>; /*
         With the exception of r5 bits 19 and 20, all "reserved" bits are to be set to zero. These
-        regions become 'invariants' by not providing fields for them in the Specification. As
-        such, this mechanism adheres to the principle of 'Resource Aquisition Is Initialization',
-        via the containing class' constructor with an (embedded, fixed) initializer-list. See:
-        "The C++ Programming Language". Fourth Edition. Stroustrup. 2013.
-        §3.2.1.2, §3.2.1.3, §17.3.4 */
-    u8 durty; SPISettings settings;RegArray reg; } dev =
-      { 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), Device::RegArray{ 0x180005,4,3,2,1,0 } };
-      // usage: object.raw( symA,valA ).raw( symB,valB ) ••• ad infinitum
+        regions become 'invariants' by not providing fields for them in the Specification. */
+    u8 durty; SPISettings settings;RegArray reg; };
+    using OVL = Overlay;
+    OVL ovl{ 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), OVL::RegArray{ 0x180005,4,3,2,1,0} };
     auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
-      static constexpr u32 MASK[] = { // Speed has priority over size. (exp2() - 1) <- Slow.
+      static constexpr u32 MASK[] = {
         0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
       auto pSpec = &layoutSpec[ static_cast<const u8>( symbol ) ];
-      dev.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
-      dev.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // Then, on.
+      ovl.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
+      ovl.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // Then, on.
       static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
-      dev.durty |= WEIGHT[ (dev.N - 1) - pSpec->RANK ]; // Encode which dev.reg was dirty'd.
+      ovl.durty |= WEIGHT[ (ovl.N - 1) - pSpec->RANK ]; // Encode which ovl.reg was dirty'd.
       return *this; }
   public:
   auto flush() -> decltype(*this) {
     u8 cx{ 0 };
-    switch( dev.durty ) { // Avoid the undirty'd. Well, almost.
+    switch( ovl.durty ) { // Avoid the undirty'd. Well, almost.
       default:  break;                    /* Otherwise: say they're all dirty. */
       case  0:  return *this;;            /* None dirty. */
-      case  1:  cx = dev.N - 1; break;    /* r0 ••• */
+      case  1:  cx = ovl.N - 1; break;    /* r0 ••• */
       case  2:  /* fall thru */           /* r1 ••• */
-      case  3:  cx = dev.N - 2; break;    /* r1 and r0 ••• */
-      case 16:  cx = dev.N - 4; break;    /* r4 ••• */ }
-    dev.durty = 0;
-    SPI.beginTransaction( dev.settings );
-    for(/* empty */; dev.N != cx; ++cx) System::tx(le, &dev.reg[cx], sizeof(dev.reg[cx]) );
+      case  3:  cx = ovl.N - 2; break;    /* r1 and r0 ••• */
+      case 16:  cx = ovl.N - 4; break;    /* r4 ••• */ }
+    ovl.durty = 0;
+    SPI.beginTransaction( ovl.settings );
+    for(/* empty */; ovl.N != cx; ++cx) System::tx(le, &ovl.reg[cx], sizeof(ovl.reg[cx]) );
     SPI.endTransaction();
     return *this; }
   auto lock() -> void { System::hardWait(ld); } // Wait on active ld pin, until lock is indicated.
   auto operator()( const System::PIN _le, System::PIN _ld ) -> decltype(*this) {
     le = _le; ld =_ld; return *this; }
-  auto operator()( const System::PLL_CONTROL& io ) -> decltype(*this) {
+  auto operator()( const System::CTRL& io ) -> decltype(operator()(io.le, io.ld)) {
     return operator()(io.le, io.ld); }
-  auto operator()( const S& sym,const u16& val ) -> decltype(*this) { switch(sym) {
+  auto operator()( const S& sym,const u16& val ) -> decltype(raw( sym,val )) { switch(sym) {
       default:                                      return raw( sym,val );
       case S::fraction:     if(val !=  store.numer) return raw( sym,store.numer  = val );
       case S::integer:      if(val !=  store.whole) {
@@ -132,61 +130,60 @@ class Overlay {
                         (lowSpur == nsMode) ? ((50 > val) ? lowNoise : nsMode) : nsMode);
                                                     return raw( sym,store.denom  = val ); }
       case S::rfDivSelect:  if(val !=  store.divis) return raw( sym,store.divis  = val );
-      case S::rfOutPwr:     if(static_cast<dBm>(val) != store.outpwr){
+      case S::rfOutPwr:     if(static_cast<dBm>(val) != store.rfpwr){
                                     raw( S::rfSoftEnable, ON );
-                                    return raw( sym,store.outpwr = static_cast<dBm>(val) ); } } }
+                                    return raw( sym,store.rfpwr = static_cast<dBm>(val) ); } } }
   auto operator()( const State::Parameters& loci ) -> decltype(*this) {
     set( S::fraction,loci.numer ).set( S::integer,loci.whole ).set( S::modulus,loci.denom );
-    set( S::phase,loci.propo ).set( S::rfDivSelect,loci.divis ).set( S::rfOutPwr,loci.outpwr );
+    set( S::phase,loci.propo ).set( S::rfDivSelect,loci.divis ).set( S::rfOutPwr,loci.rfpwr );
     return *this;  }
+  auto operator()() -> const State::Parameters {
+    return { store.divis, store.whole, store.denom, store.numer, store.propo, store.rfpwr }; }
   auto phAdj( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
   auto set( const S& sym,const u16& val ) -> decltype(*this) { return operator()( sym,val ); }
   auto set( const State::Parameters& loci ) -> decltype(*this) { return operator()( loci ); }
-} /* End Overlay */ final;  using OVL = Overlay;
-const LayoutSpecification * const Overlay::layoutSpec{ ADF435x }; 
-/* End Synthesis:: */ } namespace Manifest  {
-    // PFD: Phase Frequency Detector                          // Manifest data ...
-    constexpr auto  MIN_PFD{ 125e3 }, MAX_PFD{ 045e6 };       // (in units of Hertz)
-    constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };       // ... from the datasheet
-    constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
-/* End Manifest:: */  } namespace Synthesis {
-  constexpr auto  COMP{ ON };                    // OFF: No OSCillator error COMPensation.
-  constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
-; constexpr auto  CORRECTION{ -15 * CONSTRAINT };   // Determined by working in reverse, from the
-  constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // value of REF, as measured, below.
+} /* End SpecifiedOvelay */ final;  using SO = SpecifiedOvelay;
+const LayoutSpecification * const SO::layoutSpec{ ADF435x }; 
+/* End Synthesis:: */ } namespace Manifest  {       // Manifest data ...
+  constexpr auto  MIN_PFD{125e3}, MAX_PFD{045e6};   // (in units of Hertz)
+  constexpr auto  MIN_VCO{2.2e9}, MAX_VCO{4.4e9};   // ... from the datasheet
+  constexpr auto  MIN_FREQ{ MIN_VCO / 64 }, MAX_FREQ{ MAX_VCO };
+/* End Manifest:: */  } namespace Synthesis {       // Details. Because, comments don't get tested
+  constexpr  auto COMP{ ON };                       // OFF: No OSCillator error COMPensation.
+   constexpr auto CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
+  constexpr  auto CORRECTION{ -15 * CONSTRAINT };   // Determined by working in reverse, from the
+   constexpr auto REF_ERROR{ (COMP) * CORRECTION }; // value of REF, as measured, below.
   constexpr auto  OSC{ 25e6 };                      // Nominal osc. freq. Yours may be different.
-  constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
-  static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-  constexpr auto  RESOLUTION{ 0.25e3 };             // REF / Rcounter = PFD = Modulus * Resolution
-  constexpr auto  R_TGLR{ ON };                     // OFF: ONLY if OSC IS a 50% duty square wave.
-  constexpr auto  R_DBLR{ R_TGLR };
-  constexpr  u16  MAGIC_4{ 625 };                   // 2 raised to the fourth power.
-  constexpr  u16  MAGIC_5{ MAGIC_4 * 5 };           // 2 raised to the fifth power.
-  // Choose a Modulus, not divisible by {2,3}: { 625, 3125 }. Smaller takes longer to lock.
-  constexpr auto  MODULUS{ MAGIC_5 };
-  static_assert((MODULUS % 2) || (MODULUS % 3), "Spur avoidance. It is worth the effort.");
-  constexpr auto  REF_COUNTER{ u16(OSC / RESOLUTION / MODULUS) };
-  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );       // Non-zero, 10 bit value.
-  constexpr auto  PFD = REF * (1 + R_DBLR) / (1 + R_TGLR) / REF_COUNTER;
-  // Important: REF_ERROR is propagated by it's inclusion in the calculation of PFD
-  static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
+   constexpr auto REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
+   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
+  constexpr auto  RESOLUTION{ 0.5e3 };             // REF / Rcounter = PFD = Modulus * Resolution
+  constexpr auto  R_TGLR{ OFF }, R_DBLR{ R_TGLR };  // OFF: ONLY if OSC IS a 50% duty square wave.
+   constexpr auto BASE{ 5 }, EXP_2{ BASE * BASE }, EXP_4{ EXP_2 * EXP_2 }, EXP_5{ EXP_4 * BASE };
+   // Choose a Prpduct, not divisible by {2,3}.
+  constexpr enum  PICK { SML = 0, LRG } size = LRG; // SML: Longer lock time.
+    constexpr auto MODULUS{ size ? EXP_5 : EXP_4 }; // The same entity as that of the datasheet.
+    static_assert(4096 > MODULUS);                  // 12 bits.
+    static_assert((MODULUS % 2) || (MODULUS % 3), "Spur avoidance. It is worth the effort.");
+    constexpr auto  REF_COUNTER{ u16(OSC / RESOLUTION / MODULUS) };
+    static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );     // Non-zero, 10 bits.
+    // PFD: The (scaled) Phase Frequency detector's reference input frequency.
+    // Important: REF_ERROR is propagated by it's inclusion in the calculation of PFD
+    constexpr auto  PFD = REF * (1 + R_DBLR) / (1 + R_TGLR) / REF_COUNTER;
+    static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
   enum Axis { FREQ, PHAS, AMPL, STEP };
     /* ©2024 kd9fww */
 class Marker {
   using DBL = double;
   private:
     // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
-    //  Where: Amplitude <- |magnitude|, Frequency <- omega, and Phase <- phi, are all scalars.
+    // Where: Amplitude <- |magnitude|, Frequency <- omega, and Phase <- phi, are all scalars.
     State::Parameters loci{ State::INIT };
     DBL pfd, spacing;
-    auto amplitude() -> const u8 { return loci.outpwr; }
-    auto amplitude(const dBm& a) -> const decltype(loci) { loci.outpwr = a; return loci; }
+    auto amplitude() -> const u8 { return loci.rfpwr; }
+    auto amplitude(const dBm& a) -> const decltype(loci) { loci.rfpwr = a; return loci; }
     auto delta() -> const decltype(spacing) { return spacing; }
     auto delta(const DBL& step) -> const decltype(loci) { spacing = step; return loci; }
     auto phi() -> const DBL { return (loci.propo / DBL(loci.denom - 1)); }
-      #ifdef  degrees
-      #define polluted_namespace "What a bummer, eh?" Ian Anderson.
-      #endif  // "Good grief, Charlie Brown." C.M. Schulz.
     auto phi(DBL normalized) -> const decltype(loci){ // nomalized is a function scope copy.
         normalized = (0 > normalized) ? 0 : normalized;
         normalized = (1 < normalized) ? 1 : normalized;
@@ -210,8 +207,7 @@ class Marker {
     : pfd{ actual_pfd }, spacing{ step } {}
   auto dump() -> void {
     using namespace System;
-    pr(operator()()); pr(operator()(AMPL)); pr(operator()(PHAS),3); pc('\n'); }
-      // Marker argument dispatcher. Returns Axis selective loci of State::Parameters
+    pr(operator()()); pr(operator()(AMPL)); pr(operator()(PHAS),4); pr('\n'); }
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
     case AMPL:  return amplitude(static_cast<dBm>(arg));
@@ -225,11 +221,14 @@ class Marker {
       case AMPL:  return static_cast<double>(amplitude());
       case FREQ:  return omega();
       case PHAS:  return phi();
-      case STEP:  return delta(); } }
-/* end Marker:: */    }; /* End Synthesis:: */ }
-    /* "... how shall I tell you the story?" The King replied, "Start at the beginning. Proceed
-    until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
-auto setup() -> void {  using namespace System;
+      case STEP:  return delta(); } 
+}/* end Marker:: */ }; /* End Synthesis:: */ }
+  #ifdef  degrees
+  #define please_dont_pollute_the_global_namespace "What a bummer, eh?" Ian Anderson.
+  #endif  // "Good grief, Charlie Brown." C.M. Schulz.
+  /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
+  until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
+auto setup() -> void {  using namespace System;     // "And away we go ..." Gleason.
   SPI.begin();
   /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
@@ -243,9 +242,9 @@ auto setup() -> void {  using namespace System;
      // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void {  using namespace Synthesis;
   Serial.begin(1000000L); delay(1000L);
-; OVL pll;    { /* Enter another scope. */ OVL temp; /*
+; SO pll;    { /* Enter another scope. */ SO temp; /*
   Quantiy S::_end calls of set() are required, in any order. Four set() calls are made for each
-  mk.freq(double). So, S::_end - 4, remaining. Be sure to flush() after saving. */
+  mk.freq(double). So, S::_end - 4, remaining. */
   //                                         S::fraction, S::integer, S::modulus       (1) (2) (3)
   temp( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
   temp( S::phAdj, OFF );                                                                 // (5)
@@ -301,16 +300,18 @@ auto loop() -> void {  using namespace Synthesis;
 ; pll = temp; } /* Save and exit scope (discarding temp). */
   Marker mk;
   using namespace System;
+  pr('\n');
   pll( ctrl[A] ).set( mk(Synthesis::dBm::minus1,AMPL) ).phAdj(OFF).set(mk(0/360.,PHAS));
-  rf(ON);
-  //pll( ctrl[B] ).phAdj(ON).set( mk(180/360.,PHAS) ).flush().lock() );
-  bool dir{ true };
-  auto dF{ 1e3 }, F{ 99.99e6 };
-  while(1) {
-    delay(1333);
-    F += dir ? dF : -dF;
-                 if(100e6 <= F) { dir = false; F = 100e6;             } else
-    if (Manifest::MIN_FREQ > F) { dir = true; F = Manifest::MIN_FREQ; }
-    pll(mk( F )).flush().lock();
-    //pll( mk(60/360.,PHAS) ).phAdj(ON).flush();
-    pr(F); mk.dump();  } /* End loop() */ } // kd9fww
+  rf(ON);  //pll( ctrl[B] ).phAdj(ON).set(mk(180/360.,PHAS)).flush().lock() );
+  bool dir{ true }, debug{ 1 };
+  auto df{ 1e3 }, bot{ 68.748e6 }, top{ 68.752e6 }, f{ bot };
+while(1) {
+    delay(2222);
+    f += dir ? df : -df;
+    if(top < f) { dir = false; } else
+    if(bot > f) { dir =  true; }
+    pll(mk( f )).flush().lock();    //pll( mk(60/360.,PHAS) ).phAdj(ON).flush();
+    if(debug) { auto loci = pll();
+      pr("rfpwr:", loci.rfpwr); pr("divis:", loci.divis); pr("denom:", loci.denom);
+      pr("propo:", loci.propo); pr("whole:", loci.whole); pr("numer:", loci.numer);
+      pr(f); mk.dump(); }} /* End loop() */ } // kd9fww
