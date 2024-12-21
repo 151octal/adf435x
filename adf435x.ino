@@ -18,14 +18,15 @@ namespace System {
   constexpr PLL_CONTROL ctrl[] = { [A] = { LE_A, LD_A } };//, [B] = { LE_B, LD_B } };
   static_assert(_END == sizeof(ctrl) / sizeof(ctrl[0]));
   auto log2(double arg) -> double { return log10(arg) / log10(2); };
-  const auto wait = [](const PIN& ld) { while( !digitalRead( static_cast<u8>(ld) )); };
-  const auto rfGate = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
+  const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
+  const auto hardGate = [](bool enbl) { digitalWrite( static_cast<u8>(PIN::PDR), enbl ); };
+  const auto pushToTalk{ hardGate }, ptt{ pushToTalk };   // Synonyms
   const auto tx = [](const PIN& le, void *pByte, int nByte) {
     auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
-} namespace HW = System; namespace Synthesis {
+} namespace SYS = System; namespace Synthesis {
   enum dBm : u8 { minus4, minus1, plus2, plus5 }; 
   enum PRSCL { four5ths = 0, eight9ths };
   enum NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
@@ -110,10 +111,10 @@ class Overlay {
       case 16:  cx = dev.N - 4; break;    /* r4 ••• */ }
     dev.durty = 0;
     SPI.beginTransaction( dev.settings );
-    for(/* empty */; dev.N != cx; ++cx) HW::tx(le, &dev.reg[cx], sizeof(dev.reg[cx]) );
+    for(/* empty */; dev.N != cx; ++cx) SYS::tx(le, &dev.reg[cx], sizeof(dev.reg[cx]) );
     SPI.endTransaction();
     return *this; }
-  auto lock() -> void { System::wait(ld); } // Busy wait until lock detected.
+  auto lock() -> void { System::hardWait(ld); } // Wait on active ld pin, until lock indicated.
   auto phaseAdjust( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
     // Unit control signals setter
   auto operator()( const System::PIN& _le, System::PIN& _ld ) -> void { le = _le; ld =_ld; }
@@ -154,23 +155,26 @@ const LayoutSpecification * const Overlay::layoutSpec{ ADF435x };
     constexpr auto  MIN_VCO{ 2.2e9 }, MAX_VCO{ 4.4e9 };       // ... from the datasheet
     constexpr auto  MIN_FREQ{ MIN_VCO / 64 },  MAX_FREQ{ MAX_VCO };
 } namespace Synthesis {
-  constexpr  u16  REF_COUNTER{ 32 };                 // Use 64 for 10e6 = OSC.
-  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
-; constexpr auto  RESOLUTION{ .25e3 };
-  constexpr auto  REF_TGLR{ E::ON };                // OFF: Only IFF OSC IS a 50% square wave.
-  constexpr auto  REF_DBLR{ REF_TGLR };
   constexpr auto  COMP{ E::ON };                    // OFF: No OSCillator error COMPensation.
   constexpr auto  CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
-  constexpr auto  CORRECTION{ -13 * CONSTRAINT };   // Determined by working in reverse, from the
+; constexpr auto  CORRECTION{ -15 * CONSTRAINT };   // Determined by working in reverse, from the
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // value of REF, as measured, below.
   constexpr auto  OSC{ 25e6 };                      // Nominal osc. freq. Yours may be different.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
   static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-  constexpr auto  PFD = REF * (1 + REF_DBLR) / (1 + REF_TGLR) / REF_COUNTER;
+  // Modulus: { 625, 3125 }. It's not divisible by {2,3}. Smaller takes longer to lock.
+  constexpr  u16  MAGIC_4{ 625 };                   // 2 raised to the fourth power.
+  constexpr  u16  MAGIC_5{ MAGIC_4 * 5 };           // 2 raised to the fifth power.
+; constexpr auto  RESOLUTION{ 0.25e3 };             // REF / Rcounter = PFD = Modulus * Resolution
+  constexpr auto  R_TGLR{ E::ON };                  // OFF: ONLY if OSC IS a 50% duty square wave.
+  constexpr auto  R_DBLR{ R_TGLR };
+  constexpr auto  REF_COUNTER{ u16(OSC / RESOLUTION / MAGIC_4) };
+  static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) ); // Non-zero, 10 bit value.
+  constexpr auto  PFD = REF * (1 + R_DBLR) / (1 + R_TGLR) / REF_COUNTER;
   // Important: REF_ERROR is propagated by it's inclusion in the calculation of PFD <- actual_pfd
   static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
   constexpr auto  MODULUS{ u16(OSC / REF_COUNTER / RESOLUTION) };
-  static_assert((MODULUS % 2) || (MODULUS % 3));    // Spur avoidance.
+  static_assert((MODULUS % 2) || (MODULUS % 3), "Spur avoidance. It is worth the effort.");
 enum Axis { FREQ, PHAS, AMPL, STEP };
   /* ©2024 kd9fww */
 class Marker {
@@ -234,7 +238,7 @@ auto setup() -> void {  // "And away we go." Gleason.
   SPI.begin();
   /* digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP); */
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
-  rfGate( E::OFF );
+  hardGate( E::OFF );
   pinMode(static_cast<u8>(PIN::LE_A), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE_A), 1);
   pinMode(static_cast<u8>(PIN::LD_A), INPUT); /*
@@ -264,8 +268,8 @@ auto loop() -> void {
   temp( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.           (13)
   temp( S::dblBfr, E::ON );                                                                // (14)
   temp( S::rCounter, Synthesis::REF_COUNTER );                                             // (15)
-  temp( S::refToggler, Synthesis::REF_TGLR );                                              // (16)
-  temp( S::refDoubler, Synthesis::REF_DBLR );                                              // (17)
+  temp( S::refToggler, Synthesis::R_TGLR );                                                // (16)
+  temp( S::refDoubler, Synthesis::R_DBLR );                                                // (17)
   enum MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
   temp( S::muxOut, MuxOut::HiZ );     // see 'cheat sheet'                                    (18)
   temp( S::LnLsModes, lowNoise );                                                          // (19)
@@ -304,16 +308,15 @@ auto loop() -> void {
   Marker mk;
   using namespace System;
   pll( ctrl[A] );
-  auto F{ 40e6 }, dF{ 12.5e3 };
-  pll( mk(Synthesis::dBm::minus4,AMPL) );
-  pll( mk(F) ).set( mk(0/360.,PHAS) ).phaseAdjust(E::OFF).flush().lock();
-  rfGate(E::ON);
-  pr(' '); mk.dump();
+  auto F{ Manifest::MIN_FREQ }, dF{ 1e3 };
+  pll( mk(Synthesis::dBm::minus1,AMPL) );
+  hardGate(E::ON);
   //pll( ctrl[B] ); pll( mk(270/360.,PHAS) ).flush().lock(); pr(' '); mk.dump(); pll( ctrl[A] );
   bool dir{ true };
 ; while(1) {
-    delay(3333);
-    if(100e6 < F) { F = 100e6; dir = false; }
+    delay(2333);
+    if(100e6 <= F) { F = 100e6; dir = false; }
     else if (Manifest::MIN_FREQ > F) { F = Manifest::MIN_FREQ; dir = true; }
-    pll(mk( F += (true == dir) ? dF : -dF )).flush().lock(); pr(' '); mk.dump();
-} } // kd9fww
+    pll(mk( F += (true == dir) ? dF : -dF )).phaseAdjust(E::OFF).flush().lock();
+//    pll( mk(60/360.,PHAS) ).phaseAdjust(E::ON).flush();
+    pr(F); pr(F - mk()); mk.dump();  } } // kd9fww
