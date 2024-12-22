@@ -71,7 +71,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(Symbol::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 } namespace State { struct Parameters { u16 divis, whole, denom, numer, propo; u8 rfpwr; };
-  constexpr Parameters INIT{ 0, 0, 1, 0, 1, Synthesis::minus4 };
+  constexpr Parameters INIT{ 0, 0, 0, 0, 1, Synthesis::minus4 };
 } namespace Synthesis {
   constexpr auto N_REGISTERS{ 6 };
   /* ©2024 kd9fww */
@@ -99,6 +99,9 @@ class SpecifiedOvelay {
       ovl.durty |= WEIGHT[ (ovl.N - 1) - pSpec->RANK ]; // Encode which ovl.reg was dirty'd.
       return *this; }
   public:
+  auto dump() -> void { 
+    pr("divis:",store.divis); pr("whole:",store.whole); pr("denom:",store.denom);
+    pr("numer:",store.numer), pr("propo:",store.propo); pr("rfpwr:",store.rfpwr); }
   auto flush() -> decltype(*this) {
     u8 cx{ 0 };
     switch( ovl.durty ) { // Avoid the undirty'd. Well, almost.
@@ -118,27 +121,35 @@ class SpecifiedOvelay {
     le = _le; ld =_ld; return *this; }
   auto operator()( const System::CTRL& io ) -> decltype(operator()(io.le, io.ld)) {
     return operator()(io.le, io.ld); }
-  auto operator()( const S& sym,const u16& val ) -> decltype(raw( sym,val )) { switch(sym) {
-      default:                                      return raw( sym,val );
-      case S::fraction:     if(val !=  store.numer) return raw( sym,store.numer  = val );
-      case S::integer:      if(val !=  store.whole) {
-                      raw( S::prescaler,(75 < val) ? PRSCL::eight9ths : PRSCL::four5ths );
-                                                    return raw( sym,store.whole  = val ); }
-      case S::phase:        if(val !=  store.propo) return raw( sym,store.propo  = val );
-      case S::modulus:      if(val !=  store.denom) {
-                        raw( S::LnLsModes,nsMode =
-                        (lowSpur == nsMode) ? ((50 > val) ? lowNoise : nsMode) : nsMode);
-                                                    return raw( sym,store.denom  = val ); }
-      case S::rfDivSelect:  if(val !=  store.divis) return raw( sym,store.divis  = val );
-      case S::rfOutPwr:     if(static_cast<dBm>(val) != store.rfpwr){
-                                    raw( S::rfSoftEnable, ON );
-                                    return raw( sym,store.rfpwr = static_cast<dBm>(val) ); } } }
+  auto operator()( const S& sym,const u16& val ) -> decltype(*this) { switch(sym) {
+    // Beware of case: fall thru
+    default:                return raw( sym,val );
+    case S::fraction:     if(val !=  store.numer) {
+                            return raw( sym,store.numer  = val ); }
+                      else  return raw( sym,val );
+    case S::integer:      if(val !=  store.whole) {
+      raw( S::prescaler,(75 < val) ? PRSCL::eight9ths : PRSCL::four5ths );
+                            return raw( sym,store.whole = val ); }
+                      else  return raw( sym,val );
+    case S::phase:        if(val !=  store.propo) {
+                            return raw( sym,store.propo  = val ); }
+                      else  return raw( sym,val );
+    case S::modulus:      if(val !=  store.denom) {
+      raw( S::LnLsModes,nsMode = (lowSpur == nsMode) ? ((50 > val) ? lowNoise : nsMode) : nsMode);
+                            return raw( sym,store.denom = val ); }
+                      else  return raw( sym,val );
+    case S::rfDivSelect:  if(val !=  store.divis) {
+                            return raw( sym,store.divis  = val ); }
+                      else  return raw( sym,val );
+    case S::rfOutPwr:     if(static_cast<dBm>(val) != store.rfpwr) { 
+                            raw( S::rfSoftEnable, ON );
+                            return raw( sym,store.rfpwr = static_cast<dBm>(val) ); }
+                      else  return raw( sym,val ); } }
   auto operator()( const State::Parameters& loci ) -> decltype(*this) {
     set( S::fraction,loci.numer ).set( S::integer,loci.whole ).set( S::modulus,loci.denom );
     set( S::phase,loci.propo ).set( S::rfDivSelect,loci.divis ).set( S::rfOutPwr,loci.rfpwr );
     return *this;  }
-  auto operator()() -> const State::Parameters {
-    return { store.divis, store.whole, store.denom, store.numer, store.propo, store.rfpwr }; }
+  auto operator()() -> const decltype(store) { return store; }
   auto phAdj( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
   auto set( const S& sym,const u16& val ) -> decltype(*this) { return operator()( sym,val ); }
   auto set( const State::Parameters& loci ) -> decltype(*this) { return operator()( loci ); }
@@ -156,7 +167,7 @@ const LayoutSpecification * const SO::layoutSpec{ ADF435x };
   constexpr auto  OSC{ 25e6 };                      // Nominal osc. freq. Yours may be different.
    constexpr auto REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
    static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-  constexpr auto  RESOLUTION{ 0.5e3 };             // REF / Rcounter = PFD = Modulus * Resolution
+  constexpr auto  RESOLUTION{ 0.25e3 };             // REF / Rcounter = PFD = Modulus * Resolution
   constexpr auto  R_TGLR{ OFF }, R_DBLR{ R_TGLR };  // OFF: ONLY if OSC IS a 50% duty square wave.
    constexpr auto BASE{ 5 }, EXP_2{ BASE * BASE }, EXP_4{ EXP_2 * EXP_2 }, EXP_5{ EXP_4 * BASE };
    // Choose a Prpduct, not divisible by {2,3}.
@@ -170,7 +181,7 @@ const LayoutSpecification * const SO::layoutSpec{ ADF435x };
     // Important: REF_ERROR is propagated by it's inclusion in the calculation of PFD
     constexpr auto  PFD = REF * (1 + R_DBLR) / (1 + R_TGLR) / REF_COUNTER;
     static_assert( (Manifest::MIN_PFD <= PFD) && (Manifest::MAX_PFD >= PFD) );
-  enum Axis { FREQ, PHAS, AMPL, STEP };
+  enum Axis { FREQ, PHAS, AMPL , STEP };
     /* ©2024 kd9fww */
 class Marker {
   using DBL = double;
@@ -184,7 +195,7 @@ class Marker {
     auto delta() -> const decltype(spacing) { return spacing; }
     auto delta(const DBL& step) -> const decltype(loci) { spacing = step; return loci; }
     auto phi() -> const DBL { return (loci.propo / DBL(loci.denom - 1)); }
-    auto phi(DBL normalized) -> const decltype(loci){ // nomalized is a function scope copy.
+    auto phi(DBL normalized) -> const decltype(loci) { // nomalized is a function scope copy.
         normalized = (0 > normalized) ? 0 : normalized;
         normalized = (1 < normalized) ? 1 : normalized;
         auto proportion{ u16(round(normalized * (loci.denom - 1))) };
@@ -207,7 +218,7 @@ class Marker {
     : pfd{ actual_pfd }, spacing{ step } {}
   auto dump() -> void {
     using namespace System;
-    pr(operator()()); pr(operator()(AMPL)); pr(operator()(PHAS),4); pr('\n'); }
+    pr(operator()()); pr(operator()(AMPL)); pr(operator()(PHAS),4); }
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
     case AMPL:  return amplitude(static_cast<dBm>(arg));
@@ -301,17 +312,13 @@ auto loop() -> void {  using namespace Synthesis;
   Marker mk;
   using namespace System;
   pr('\n');
-  pll( ctrl[A] ).set( mk(Synthesis::dBm::minus1,AMPL) ).phAdj(OFF).set(mk(0/360.,PHAS));
+  pll( ctrl[A] ).set( mk(Synthesis::dBm::plus2,AMPL) ).phAdj(OFF).set(mk(0/360.,PHAS));
   rf(ON);  //pll( ctrl[B] ).phAdj(ON).set(mk(180/360.,PHAS)).flush().lock() );
-  bool dir{ true }, debug{ 1 };
-  auto df{ 1e3 }, bot{ 68.748e6 }, top{ 68.752e6 }, f{ bot };
-while(1) {
-    delay(2222);
-    f += dir ? df : -df;
-    if(top < f) { dir = false; } else
-    if(bot > f) { dir =  true; }
-    pll(mk( f )).flush().lock();    //pll( mk(60/360.,PHAS) ).phAdj(ON).flush();
-    if(debug) { auto loci = pll();
-      pr("rfpwr:", loci.rfpwr); pr("divis:", loci.divis); pr("denom:", loci.denom);
-      pr("propo:", loci.propo); pr("whole:", loci.whole); pr("numer:", loci.numer);
-      pr(f); mk.dump(); }} /* End loop() */ } // kd9fww
+  bool dir{ 1 }, debug{ 1 };
+  auto df{ 12.5e3 }, bot{ Manifest::MIN_FREQ }, top{ 100e6 }, f{ 67e6 };
+    while(1) {
+      delay(1666);
+      pll(mk( f )).flush().lock();    //pll( mk(60/360.,PHAS) ).phAdj(ON).flush();
+      if(debug) { pll.dump(); pr(' '); pr(f); mk.dump(); pr('\n'); }
+      f += dir ? df : -df;
+      if(top < f) { dir = 0; } else if(bot > f) { dir = 1; } } /* End loop() */ } // kd9fww
