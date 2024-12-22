@@ -6,15 +6,16 @@
 #include <ArxContainer.h>
 #include <SPI.h>
   enum Enable { OFF = 0, ON = 1 };
-  // Shorthand
-  void pr(                       const char& cc ) { Serial.print(cc); }
-  void pr(   const double& arg,     int num = 0 ) { Serial.print(arg, num); pr(' '); }
-  void pr(     const  u16& arg,   int num = DEC ) { Serial.print(arg, num); pr(' '); }
-  void pr(     const  u32& arg,   int num = DEC ) { Serial.print(arg, num); pr(' '); }
-  void pr( const char* const s, const  u16& arg, int num = DEC ) { Serial.print(s); pr(arg,num); }
-  void pb(     const  u32& arg,      u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary...
-      default: break;  case 8: case 16: case 24: pr(' '); break; }  // in byte sized chunks,
-    pr( ((1UL << --nb) & arg) ? '1' : '0' ); } pr(' '); }           // one bit at a time.
+  void pr( const char& cc ) { Serial.print(cc); } // Shorthand
+  void ps( const char* const s ) { Serial.print(s); }
+  void pr( const double& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
+  void pr( const u16& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
+  void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
+  void pd( const char* const s, const double& arg, int num = 0 ) { ps(s), pr(arg,num); }
+  void pr( const char* const s, const u16& arg, int num = DEC ) { ps(s); pr(arg,num); }
+  void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary...
+      default: break; case 8: case 16: case 24: pr(' '); }            // in byte sized chunks,
+    pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time.
 ; namespace System {
   enum PIN : u8 { encJ = 2, encK = 3, MUX = 4, PDR = 6, LD_A = 7, LE_A = 10 };
   enum UNIT { A, /* B, */ _end };
@@ -100,8 +101,8 @@ class SpecifiedOvelay {
       return *this; }
   public:
   auto dump() -> void { 
-    pr("divis:",store.divis); pr("whole:",store.whole); pr("denom:",store.denom);
-    pr("numer:",store.numer), pr("propo:",store.propo); pr("rfpwr:",store.rfpwr); }
+    pr("rfpwr:",store.rfpwr); pr("denom:",store.denom); pr("propo:",store.propo);
+    pr("divis:",store.divis); pr("whole:",store.whole); pr("numer:",store.numer); }
   auto flush() -> decltype(*this) {
     u8 cx{ 0 };
     switch( ovl.durty ) { // Avoid the undirty'd. Well, almost.
@@ -156,20 +157,23 @@ class SpecifiedOvelay {
 } /* End SpecifiedOvelay */ final;  using SO = SpecifiedOvelay;
 const LayoutSpecification * const SO::layoutSpec{ ADF435x }; 
 /* End Synthesis:: */ } namespace Manifest  {       // Manifest data ...
-  constexpr auto  MIN_PFD{125e3}, MAX_PFD{045e6};   // (in units of Hertz)
-  constexpr auto  MIN_VCO{2.2e9}, MAX_VCO{4.4e9};   // ... from the datasheet
-  constexpr auto  MIN_FREQ{ MIN_VCO / 64 }, MAX_FREQ{ MAX_VCO };
+  constexpr auto  MAX_VCO{ 4400000000U };           // 4400 MHz
+  constexpr  u32  MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz
+  constexpr auto  MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz
+  constexpr auto  MAX_PFD{ MIN_VCO / 50 };          // 44 MHz
+  constexpr auto  MIN_FREQ{ MIN_VCO / 64 };         // 34375 kHz
+  constexpr auto  MAX_FREQ{ MAX_VCO };
 /* End Manifest:: */  } namespace Synthesis {       // Details. Because, comments don't get tested
   constexpr  auto COMP{ ON };                       // OFF: No OSCillator error COMPensation.
-   constexpr auto CONSTRAINT{ 1e1 };                // 'digit(s) lost' Assertion failure avoidance
+   constexpr auto CONSTRAINT{ 10 };                 // 'digit(s) lost' Assertion failure avoidance
   constexpr  auto CORRECTION{ -15 * CONSTRAINT };   // Determined by working in reverse, from the
    constexpr auto REF_ERROR{ (COMP) * CORRECTION }; // value of REF, as measured, below.
-  constexpr auto  OSC{ 25e6 };                      // Nominal osc. freq. Yours may be different.
+  constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
    constexpr auto REF{ OSC + REF_ERROR };           // Measured osc. freq. YOURS WILL BE DIFFERENT
    static_assert( 0 == (REF - OSC) - REF_ERROR, "Least significant digit(s) lost." );
-  constexpr auto  RESOLUTION{ 0.25e3 };             // REF / Rcounter = PFD = Modulus * Resolution
+  constexpr auto  RESOLUTION{ 250U };               // REF / Rcounter = PFD = Modulus * Resolution
   constexpr auto  R_TGLR{ OFF }, R_DBLR{ R_TGLR };  // OFF: ONLY if OSC IS a 50% duty square wave.
-   constexpr auto BASE{ 5 }, EXP_2{ BASE * BASE }, EXP_4{ EXP_2 * EXP_2 }, EXP_5{ EXP_4 * BASE };
+   constexpr auto BASE{ 5U }, EXP_2{ BASE * BASE }, EXP_4{ EXP_2 * EXP_2 }, EXP_5{ EXP_4 * BASE };
    // Choose a Prpduct, not divisible by {2,3}.
   constexpr enum  PICK { SML = 0, LRG } size = LRG; // SML: Longer lock time.
     constexpr auto MODULUS{ size ? EXP_5 : EXP_4 }; // The same entity as that of the datasheet.
@@ -218,7 +222,7 @@ class Marker {
     : pfd{ actual_pfd }, spacing{ step } {}
   auto dump() -> void {
     using namespace System;
-    pr(operator()()); pr(operator()(AMPL)); pr(operator()(PHAS),4); }
+    pr("a:", operator()(AMPL)); pd("p:", operator()(PHAS),4); pd("f:", operator()()); }
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
     case AMPL:  return amplitude(static_cast<dBm>(arg));
@@ -315,10 +319,10 @@ auto loop() -> void {  using namespace Synthesis;
   pll( ctrl[A] ).set( mk(Synthesis::dBm::plus2,AMPL) ).phAdj(OFF).set(mk(0/360.,PHAS));
   rf(ON);  //pll( ctrl[B] ).phAdj(ON).set(mk(180/360.,PHAS)).flush().lock() );
   bool dir{ 1 }, debug{ 1 };
-  auto df{ 12.5e3 }, bot{ Manifest::MIN_FREQ }, top{ 100e6 }, f{ 67e6 };
-    while(1) {
-      delay(1666);
-      pll(mk( f )).flush().lock();    //pll( mk(60/360.,PHAS) ).phAdj(ON).flush();
-      if(debug) { pll.dump(); pr(' '); pr(f); mk.dump(); pr('\n'); }
-      f += dir ? df : -df;
-      if(top < f) { dir = 0; } else if(bot > f) { dir = 1; } } /* End loop() */ } // kd9fww
+  auto bot{ Manifest::MIN_FREQ }; auto df{ 12500U }; auto top{ 100000000U }, f{ 68750000U };
+  while(1) {
+    delay(3333);
+    pll(mk( f )).flush().lock();    //pll( mk(60/360.,PHAS) ).phAdj(ON).flush();
+    if(debug) { pll.dump(); mk.dump(); pr(f); pr(f - mk()); pr('\n'); }
+    f += dir ? df : -df;
+    if(top < f) { dir = 0; } else if(bot > f) { dir = 1; } } } // kd9fww
