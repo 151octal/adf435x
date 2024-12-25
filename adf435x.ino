@@ -1,24 +1,24 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~350 lines, ~10K mem).
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~350 lines, ~8K mem).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
-#include <SPI.h>
+#include <Arduino.h>
 #include <ArxContainer.h>
+#include <BasicEncoder.h>
+#include <SPI.h>
   using ULL = unsigned long long;
   enum Enable { OFF = 0, ON = 1 };
   // Debug shorthand. Remove me prior to release.
   void pr( const char& cc ) { Serial.print(cc); }
-  void ps( const char* const s ) { Serial.print(s); }
+  void pr( const char* const s ) { Serial.print(s); }
   void pr( const double& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
   void pr( const u16& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
   void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
-  void pd( const char* const s, const double& arg, int num = 0 ) { ps(s), pr(arg,num); }
-  void pr( const char* const s, const u16& arg, int num = DEC ) { ps(s); pr(arg,num); }
-  void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
+  void pd( const char* const s, const double& arg, int num = 0 ) { pr(s), pr(arg,num); }
+  void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
+ /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
       default: break; case 8: case 16: case 24: pr(' '); }            // in byte sized chunks,
-    pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time.
-#include <Arduino.h>
-#include <BasicEncoder.h>
+    pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time.*/
 namespace Hardware {
   // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
   enum PIN : u8 { eJ = 2, eK = 3, MUX = 4, PDR = 6, LD_A = 7, LE_A = 10 };
@@ -33,31 +33,8 @@ namespace Hardware {
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
-} namespace HW =  Hardware; namespace Manifest  {   // Constants. Direct or derived from datasheet
-  constexpr ULL   MAX_VCO{ 4400000000 };            // 4400 MHz. Unsigned long long.
-  constexpr u32   MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
-  constexpr u32   MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz.
-  constexpr u32   MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
-  constexpr u32   MIN_FREQ{ MIN_VCO / 64 };         // 34375 kHz (64: maximum rf divider value).
-  constexpr ULL   MAX_FREQ{ MAX_VCO };
-/* End Manifest::  */ }     namespace Synthesis {   // Detailed because compilers ignore comments.
-  constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC IS a 50% duty square wave
-  constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
-; constexpr auto  CORRECTION{ -129 };               // Determined by working in reverse, from
-  constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, below.
-  constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
-  constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. Yours WILL BE different
-   constexpr auto M0{ 5U }, M4{ M0*M0*M0*M0 };      
-  constexpr enum  PICK { SML = 0, LRG } size = LRG; // Pick a modulus not divisible by {2,3}.
-  constexpr auto  MOD{ size ? M4 * M0 : M4 };       // SML: Longer lock time.
-    static_assert((4096>MOD) && (MOD%2) && (MOD%3));// 12 bits with spur avoidance
-; constexpr  u16  STEP_SIZE{ 100 };                 // REF / Rcounter = PFD = Modulus * STEP_SIZE
-  constexpr auto  REF_COUNTER{ u16(OSC / STEP_SIZE / MOD) };        // This quotient must have
-    static_assert(REF_COUNTER * STEP_SIZE == OSC / MOD);            // a zero remainder.
-    static_assert( (0 < REF_COUNTER) && (1024 > REF_COUNTER) );     // Non-zero, 10 bits.
-  constexpr auto  PFD = REF * (1+DBLR) / (1+TGLR) / REF_COUNTER;    // Phase Frequency Detector
-    static_assert(Manifest::MAX_PFD >= PFD);
- enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
+} namespace HW =  Hardware; namespace Synthesis {
+  enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
   enum  Axis { FREQ = 0, PHAS, AMPL, STEP };
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
@@ -71,6 +48,28 @@ namespace Hardware {
   enum  NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
   enum  PRSCL { four5ths = 0, eight9ths };
   enum  PDpolarity { negative = 0, positive };
+  constexpr ULL   MAX_VCO{ 4400000000 };            // 4400 MHz.
+  constexpr u32   MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
+  constexpr u32   MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz.
+  constexpr u32   MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
+  constexpr u32   MIN_FREQ{ MIN_VCO / 64 };         // 34375 kHz (64: maximum rf divider value).
+  constexpr ULL   MAX_FREQ{ MAX_VCO };
+  constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC IS a 50% duty square wave
+  constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
+  constexpr auto  CORRECTION{ -130 };               // Determined by working in reverse, from
+  constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, below.
+  constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
+  constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. Yours WILL BE DIFFERENT
+  constexpr auto M0{ 5U }, M4{ M0*M0*M0*M0 };      
+  constexpr enum  PICK { SML = 0, LRG } size = SML; // Pick a modulus not divisible by {2,3}.
+  constexpr auto  MOD{ size ? M4 * M0 : M4 };       // SML: Longer lock time.
+    static_assert((4096>MOD) && (MOD%2) && (MOD%3));// 12 bits with spur avoidance
+  constexpr  u16  IOTA{ 1000 };                     // REF / Rcounter = PFD = Modulus * IOTA
+  constexpr auto  R_COUNTER{ u16(OSC / IOTA / MOD) };
+    static_assert(R_COUNTER * IOTA == OSC / MOD);   // Quotient remainder must be zero.
+    static_assert((0 < R_COUNTER) && (1024 > R_COUNTER));           // Non-zero, 10 bits.
+  constexpr auto  PFD = REF * (1+DBLR) / (1+TGLR) / R_COUNTER;      // Phase Frequency Detector
+    static_assert(MAX_PFD >= PFD);
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -108,8 +107,8 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(Symbol::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-struct Parameters { u8 rfpwr, rfdiv; u16 denom, whole, numer, propo; };
-  constexpr Parameters INIT{ 0, 0, 0, 0, 1, dBm::minus4 };
+struct State { u8 rfpwr, rfdiv; u16 denom, whole, numer, propo; };
+  constexpr State INIT{ 0, 0, 0, 0, 1, dBm::minus4 };
   constexpr auto OVERLAYED_REGISTERS{ 6 };
   /* ©2024 kd9fww */
 class SpecifiedOvelay {
@@ -117,7 +116,7 @@ class SpecifiedOvelay {
     HW::PIN le{ HW::ctrl[HW::UNIT::A].le }, ld{ HW::ctrl[HW::UNIT::A].ld };
     NoiseSpurMode nsMode = lowNoise;
     static const LayoutSpecification* const layoutSpec;
-    Parameters store{ INIT };
+    State store{ INIT };
     struct Overlay {
       static constexpr size_t N{ OVERLAYED_REGISTERS };
       using RegArray = std::array<u32, N>; /*
@@ -136,9 +135,6 @@ class SpecifiedOvelay {
       ovl.durty |= WEIGHT[ (ovl.N - 1) - pSpec->RANK ]; // Encode which ovl.reg was dirty'd.
       return *this; }
   public:
-  auto dump() -> void { 
-    pr("rfpwr:",store.rfpwr); pr("rfdiv:",store.rfdiv); pr("denom:",store.denom);
-    pr("whole:",store.whole); pr("numer:",store.numer); pr("propo:",store.propo); }
   auto flush() -> decltype(*this) {
     u8 cx{ 0 };
     switch( ovl.durty ) { // Avoid the undirty'd. Well, almost.
@@ -182,8 +178,8 @@ class SpecifiedOvelay {
                             raw( S::rfSoftEnable, ON );
                             return raw( sym,store.rfpwr = static_cast<dBm>(val) ); }
                       else  return raw( sym,val );                                } }
-    // Parameter dispatcher
-  auto operator()( const Parameters& loci ) -> decltype(*this) {
+      // Parameter dispatcher
+  auto operator()( const State& loci ) -> decltype(*this) {
     set( S::fraction,loci.numer ).set( S::integer,loci.whole ).set( S::modulus,loci.denom );
     set( S::phase,loci.propo ).set( S::rfDivSelect,loci.rfdiv ).set( S::rfOutPwr,loci.rfpwr );
     return *this;  }
@@ -192,7 +188,7 @@ class SpecifiedOvelay {
     // Wrapper for operator()( sym,val )
   auto set( const S& sym,const u16& val ) -> decltype(*this) { return operator()( sym,val ); }
     // Wrapper for opertor()( loci )
-  auto set( const Parameters& loci ) -> decltype(*this) { return operator()( loci ); }
+  auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; using SO = SpecifiedOvelay; const LayoutSpecification * const SO::layoutSpec{ ADF435x };
     /* ©2024 kd9fww */
 class Marker {
@@ -200,7 +196,7 @@ class Marker {
   private:
     // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
     // Where: Amplitude <- |magnitude|, Frequency <- omega, and Phase <- phi, are all scalars.
-    Parameters loci{ INIT };
+    State loci{ INIT };
     u32 pfd; u16 spacing;
     auto amplitude() -> const u8 { return loci.rfpwr; }
     auto amplitude(const dBm& a) -> const decltype(loci) { loci.rfpwr = a; return loci; }
@@ -216,27 +212,25 @@ class Marker {
     auto omega() -> const DBL {
       return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.rfdiv); }
     auto omega(DBL freq) -> decltype(loci) {            // 'freq' is a function scope copy.
-      freq = (Manifest::MIN_FREQ < freq) ? freq : Manifest::MIN_FREQ;
-      freq = (Manifest::MAX_FREQ > freq) ? freq : Manifest::MAX_FREQ;
-      loci.rfdiv = u16( floor( log2(Manifest::MAX_VCO / freq) ) );
+      freq = (MIN_FREQ < freq) ? freq : MIN_FREQ;
+      freq = (MAX_FREQ > freq) ? freq : MAX_FREQ;
+      loci.rfdiv = u16( floor( log2(MAX_VCO / freq) ) );
       auto fractional_N{ freq / pfd * pow(2, loci.rfdiv) };
       loci.whole = u16( floor( fractional_N ) );
       loci.whole = (22 < loci.whole) ? loci.whole : 22;
-      loci.denom = u16( ceil( OSC / REF_COUNTER / spacing ) );
+      loci.denom = u16( ceil( OSC / R_COUNTER / spacing ) );
       loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
       return loci;  }
   public:
-  Marker( const u32& actual_pfd = PFD, const u16& step = STEP_SIZE )
+  Marker( const u32& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
-  auto dump() -> void {
-    pr("a:", operator()(AMPL)); pd("p:", operator()(PHAS),4); pd("f:", operator()()); }
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     default:
     case AMPL:  return amplitude(static_cast<dBm>(arg));
     case FREQ:  return omega(arg);
     case PHAS:  return phi(arg);
     case STEP:  return delta(arg); } }
-      // Marker value dispatcher. Returns Axis selective value from Parameters
+      // Marker value dispatcher. Returns Axis selective value from State
   const auto operator()(Axis axis = FREQ) -> const decltype(omega()) {
     switch (axis) {
       default:
@@ -248,72 +242,76 @@ class Marker {
   /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
   until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void { using namespace Hardware;    // "And, away we go ..." Gleason.
-  SPI.begin();
-  digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP);  // Unused.
-  pinMode(static_cast<u8>(PIN::PDR), OUTPUT);             // Rf output enable.
+  pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
   rf( OFF );
   pinMode(static_cast<u8>(PIN::LE_A), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE_A), 1);
-  pinMode(static_cast<u8>(PIN::LD_A), INPUT); /*
-  pinMode(static_cast<u8>(PIN::LE_B), OUTPUT);
-  digitalWrite(static_cast<u8>(PIN::LE_B), 1);
-  pinMode(static_cast<u8>(PIN::LD_B), INPUT); */ }
-     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-;auto loop() -> void { using namespace Synthesis;
+  pinMode(static_cast<u8>(PIN::LD_A), INPUT);
+  // pinMode(static_cast<u8>(PIN::LE_B), OUTPUT);
+  // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
+  // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
+  digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
+  SPI.begin(); }
+    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
+auto loop() -> void { using namespace Synthesis;
+  SpecifiedOvelay pll;
   Serial.begin(1000000L); delay(1000L);
-; SO pll;     { /* Enter another scope. */ SO temp; /*
-  Quantiy S::_end calls of set() are required, in any order. */
+  // Quantiy S::_end calls of set() are required, in any order.
   //                     S::fraction, S::integer, S::modulus S::rfDivSelect       (1) (2) (3) (34)
-  temp( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
-  temp( S::phAdj, OFF );                                                                    // (5)
-  temp( S::prescaler,PRSCL::eight9ths );  // Possiblly redundant                            // (6)
-  temp( S::counterReset, OFF );                                                             // (7)
-  temp( S::cp3state, OFF );                                                                 // (8)
-  temp( S::idle, OFF );                                                                     // (9)
-  temp( S::pdPolarity, PDpolarity::positive );                                             // (10)
-  temp( S::ldp, LDPnS::ten );                                                              // (11)
-  temp( S::ldf, LockDetectFunction::fracN );                                               // (12)
-  temp( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.           (13)
-  temp( S::dblBfr, ON );                                                                   // (14)
-  temp( S::rCounter, REF_COUNTER );                                                        // (15)
-  temp( S::refToggler, TGLR );                                                             // (16)
-  temp( S::refDoubler, DBLR );                                                             // (17)
-  temp( S::muxOut, MuxOut::HiZ );         // see 'cheat sheet'                                (18)
-  temp( S::LnLsModes, lowNoise );                                                          // (19)
+  pll( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
+  pll( S::phAdj, OFF );                                                                    // (5)
+  pll( S::prescaler,PRSCL::eight9ths );  // Possiblly redundant                            // (6)
+  pll( S::counterReset, OFF );                                                             // (7)
+  pll( S::cp3state, OFF );                                                                 // (8)
+  pll( S::idle, OFF );                                                                     // (9)
+  pll( S::pdPolarity, PDpolarity::positive );                                             // (10)
+  pll( S::ldp, LDPnS::ten );                                                              // (11)
+  pll( S::ldf, LockDetectFunction::fracN );                                               // (12)
+  pll( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.           (13)
+  pll( S::dblBfr, ON );                                                                   // (14)
+  pll( S::rCounter, R_COUNTER );                                                          // (15)
+  pll( S::refToggler, TGLR );                                                             // (16)
+  pll( S::refDoubler, DBLR );                                                             // (17)
+  pll( S::muxOut, MuxOut::HiZ );         // see 'cheat sheet'                                (18)
+  pll( S::LnLsModes, lowNoise );                                                          // (19)
   constexpr auto CLKDIV32 = 150;          // I don't understand this, YET.
   //= round( PFD / MOD * 400e-6 ); // from datasheets'
   // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
   static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
-  temp( S::clkDivider, CLKDIV );                                                           // (20)
-  temp( S::clkDivMode, ClockingMode::dividerOff );                                         // (21)
-  temp( S::csr, ON );                     // Cycle Slip reduction                             (22)
-  temp( S::chrgCancel, OFF );                                                              // (23)
-  temp( S::abp, ABPnS::nS6fracN );                                                         // (24)
-  temp( S::bscMode,(Manifest::MIN_PFD < PFD) ? BSCmd::automatic : BSCmd::programmed);      // (25)
-  temp( S::rfOutPwr, minus4 );            // Possiblly redundant                           // (26)
-  temp( S::rfSoftEnable, ON );                                                             // (27)
-  temp( S::auxOutPwr, minus4 );                                                            // (28)
-  temp( S::auxOutEnable, OFF );           // Pin not connected.                               (29)
-  temp( S::auxFBselect, !Feedback );                                                       // (30)
-  temp( S::muteTillLD, ON );                                                               // (31)
-  temp( S::vcoPwrDown, OFF );                                                              // (32)
-  auto BscClkDiv = ceil(double(PFD) / Manifest::MIN_PFD);
-  // auto BscClk = double(REF) / REF_COUNTER / BscClkDiv;
-  temp( S::bndSelClkDv, u8(BscClkDiv) );                                                   // (33)
-  temp( S::rfFBselect, !Feedback );       /* EEK! Why the negation?                           (35)
+  pll( S::clkDivider, CLKDIV );                                                           // (20)
+  pll( S::clkDivMode, ClockingMode::dividerOff );                                         // (21)
+  pll( S::csr, ON );                     // Cycle Slip reduction                             (22)
+  pll( S::chrgCancel, OFF );                                                              // (23)
+  pll( S::abp, ABPnS::nS6fracN );                                                         // (24)
+  pll( S::bscMode,(MIN_PFD < PFD) ? BSCmd::automatic : BSCmd::programmed);      // (25)
+  pll( S::rfOutPwr, minus4 );            // Possiblly redundant                           // (26)
+  pll( S::rfSoftEnable, ON );                                                             // (27)
+  pll( S::auxOutPwr, minus4 );                                                            // (28)
+  pll( S::auxOutEnable, OFF );           // Pin not connected.                               (29)
+  pll( S::auxFBselect, !Feedback );                                                       // (30)
+  pll( S::muteTillLD, ON );                                                               // (31)
+  pll( S::vcoPwrDown, OFF );                                                              // (32)
+  auto BscClkDiv = ceil(double(PFD) / MIN_PFD);
+  // auto BscClk = double(REF) / R_COUNTER / BscClkDiv;
+  pll( S::bndSelClkDv, u8(BscClkDiv) );                                                   // (33)
+  pll( S::rfFBselect, !Feedback );       /* EEK! Why the negation?                           (35)
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
-  temp( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
-; pll = temp; } /* Save and exit scope (discarding temp). */
-  Marker mk;
+  pll( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
+; Marker mk;
   // pll( HW::ctrl[HW::A] ); // Needed if 1 < sizeof(ctrl)
   pll(mk(dBm::plus2,AMPL)).phAdj(OFF).set(mk(0/360.,PHAS));
   HW::rf(ON);  //pll( HW::ctrl[HW::B] ).phAdj(ON).set(mk(180/360.,PHAS)).flush().lock() );
-  bool dir{ 0 }, debug{ 0 };  constexpr u32 coarse{ 1000000 };
-  u32 bot{ 34375000 }, top{ 100000000 }, f{ top }; auto fine{ coarse / 40 };
-  while(1) {
+  bool dir{ 0 }, debug{ 0 };
+  // State trajectory versus frequency along the line: loci(f) = mk(f) = mk(slope * f + bottom)
+  constexpr u32 bottom{ 34375000 }, top{ 100000000 }, slope{ IOTA * 25 }; auto f{ top };
+; while(1) {
     delay(2222);
+    if(top < f) { dir = 1; } else if(bottom > f) { dir = 1; }
     pll(mk( f )).flush().lock();
-    if(debug) { pll.dump(); mk.dump(); pr(f); pr(f - mk()); pr('\n'); }
-    f += dir ? fine : -fine;
-    if(top < f) { dir = 0; } else if(bot > f) { dir = 1; } } } // kd9fww
+    if(debug) {
+      pr("rfpwr:",pll().rfpwr); pr("rfdiv:",pll().rfdiv); pr("denom:",pll().denom);
+      pr("whole:",pll().whole); pr("numer:",pll().numer); pr("propo:",pll().propo);
+      pr("a:", mk(AMPL)); pd("p:", mk(PHAS),4); pd("f:", mk());
+      pr(f); pr(f - mk()); pr('\n'); }
+    f += dir ? slope : -slope; } } // kd9fww
