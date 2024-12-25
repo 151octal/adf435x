@@ -1,14 +1,16 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~350 lines, ~8K mem).
+/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~350 lines, ~9k mem).
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
-  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
-#include <Arduino.h>
-#include <ArxContainer.h>
-#include <BasicEncoder.h>
-#include <SPI.h>
+  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet   */
+ #include <Arduino.h>
+ #include <ArxContainer.h>
+ #include <BasicEncoder.h>
+ #include <SPI.h>
+#define DEBUG // Uses ≈2.5k program space.
+//  #undef DEBUG
+; enum Enable { OFF = 0, ON = 1 };
   using ULL = unsigned long long;
-  enum Enable { OFF = 0, ON = 1 };
-  // Debug shorthand. Remove me prior to release.
+    #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
   void pr( const char* const s ) { Serial.print(s); }
   void pr( const double& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
@@ -18,7 +20,8 @@
   void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
  /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
       default: break; case 8: case 16: case 24: pr(' '); }            // in byte sized chunks,
-    pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time.*/
+    pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time. */
+      #endif
 namespace Hardware {
   // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
   enum PIN : u8 { eJ = 2, eK = 3, MUX = 4, PDR = 6, LD_A = 7, LE_A = 10 };
@@ -33,7 +36,7 @@ namespace Hardware {
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
-} namespace HW =  Hardware; namespace Synthesis {
+} namespace HW = Hardware; namespace Synthesis {
   enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
   enum  Axis { FREQ = 0, PHAS, AMPL, STEP };
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
@@ -54,12 +57,12 @@ namespace Hardware {
   constexpr u32   MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
   constexpr u32   MIN_FREQ{ MIN_VCO / 64 };         // 34375 kHz (64: maximum rf divider value).
   constexpr ULL   MAX_FREQ{ MAX_VCO };
-  constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC IS a 50% duty square wave
+  constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
   constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
   constexpr auto  CORRECTION{ -130 };               // Determined by working in reverse, from
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, below.
   constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
-  constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq. Yours WILL BE DIFFERENT
+  constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq.
   constexpr auto M0{ 5U }, M4{ M0*M0*M0*M0 };      
   constexpr enum  PICK { SML = 0, LRG } size = SML; // Pick a modulus not divisible by {2,3}.
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // SML: Longer lock time.
@@ -86,14 +89,17 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     rfDivSelect,  rfFBselect,   ledMode,
     _end
   };  using S = Symbol;
-constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = { /*
+constexpr auto OVERLAYED_REGISTERS{ 6 };
+constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = {  /*
   Human deduced via inspection.
-    N:      Number of (32 bit) "registers": 6
-    RANK:   Datasheet Register Number = N - 1 - RANK
-            tx() in ascending RANK order, unless not dirty. Thus, datasheet register '0' is
-            always tx()'d last (and will always need to be tx()'d). See flush() below.
-    OFFSET: Zero based position of the field's least significant bit.
-    WIDTH:  Correct. The number of bits in a field (and is at least one). •You get a gold star• */
+    OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
+    RANK:                 Datasheet Register Number = OVERLAYED_REGISTERS - 1 - RANK
+                          tx() in ascending RANK order, unless not dirty. Thus, datasheet
+                          register '0' is always tx()'d last (and will always need to be
+                          tx()'d). See flush() below.
+    OFFSET:               Zero based position of the field's least significant bit.
+    WIDTH:                Correct. The number of bits in a field (and is at least one).
+                          •You get a gold star•                                       */
   [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
   [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phAdj] = {4, 28, 1},
   [S::counterReset] = {3, 3, 1},  [S::cp3state] = {3, 4, 1},      [S::idle] = {3, 5, 1},
@@ -109,7 +115,6 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   static_assert(Symbol::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct State { u8 rfpwr, rfdiv; u16 denom, whole, numer, propo; };
   constexpr State INIT{ 0, 0, 0, 0, 1, dBm::minus4 };
-  constexpr auto OVERLAYED_REGISTERS{ 6 };
   /* ©2024 kd9fww */
 class SpecifiedOvelay {
   private:
@@ -254,10 +259,11 @@ auto setup() -> void { using namespace Hardware;    // "And, away we go ..." Gle
   SPI.begin(); }
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { using namespace Synthesis;
-  SpecifiedOvelay pll;
+; SpecifiedOvelay pll;
+  #ifdef DEBUG
   Serial.begin(1000000L); delay(1000L);
-  // Quantiy S::_end calls of set() are required, in any order.
-  //                     S::fraction, S::integer, S::modulus S::rfDivSelect       (1) (2) (3) (34)
+  #endif // Quantiy S::_end calls of set() are required, in any order.
+  //                     S::fraction, S::integer, S::modulus S::rfDivSelect      (1) (2) (3) (34)
   pll( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
   pll( S::phAdj, OFF );                                                                    // (5)
   pll( S::prescaler,PRSCL::eight9ths );  // Possiblly redundant                            // (6)
@@ -272,7 +278,7 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::rCounter, R_COUNTER );                                                          // (15)
   pll( S::refToggler, TGLR );                                                             // (16)
   pll( S::refDoubler, DBLR );                                                             // (17)
-  pll( S::muxOut, MuxOut::HiZ );         // see 'cheat sheet'                                (18)
+  pll( S::muxOut, MuxOut::HiZ );          // see 'cheat sheet'                               (18)
   pll( S::LnLsModes, lowNoise );                                                          // (19)
   constexpr auto CLKDIV32 = 150;          // I don't understand this, YET.
   //= round( PFD / MOD * 400e-6 ); // from datasheets'
@@ -281,37 +287,37 @@ auto loop() -> void { using namespace Synthesis;
   static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
   pll( S::clkDivider, CLKDIV );                                                           // (20)
   pll( S::clkDivMode, ClockingMode::dividerOff );                                         // (21)
-  pll( S::csr, ON );                     // Cycle Slip reduction                             (22)
+  pll( S::csr, ON );                      // Cycle Slip reduction                            (22)
   pll( S::chrgCancel, OFF );                                                              // (23)
   pll( S::abp, ABPnS::nS6fracN );                                                         // (24)
-  pll( S::bscMode,(MIN_PFD < PFD) ? BSCmd::automatic : BSCmd::programmed);      // (25)
-  pll( S::rfOutPwr, minus4 );            // Possiblly redundant                           // (26)
+  pll( S::bscMode,(MIN_PFD < PFD) ? BSCmd::automatic : BSCmd::programmed);                // (25)
+  pll( S::rfOutPwr, minus4 );             // Possiblly redundant                          // (26)
   pll( S::rfSoftEnable, ON );                                                             // (27)
   pll( S::auxOutPwr, minus4 );                                                            // (28)
-  pll( S::auxOutEnable, OFF );           // Pin not connected.                               (29)
+  pll( S::auxOutEnable, OFF );            // Pin not connected.                              (29)
   pll( S::auxFBselect, !Feedback );                                                       // (30)
   pll( S::muteTillLD, ON );                                                               // (31)
   pll( S::vcoPwrDown, OFF );                                                              // (32)
   auto BscClkDiv = ceil(double(PFD) / MIN_PFD);
   // auto BscClk = double(REF) / R_COUNTER / BscClkDiv;
   pll( S::bndSelClkDv, u8(BscClkDiv) );                                                   // (33)
-  pll( S::rfFBselect, !Feedback );       /* EEK! Why the negation?                           (35)
+  pll( S::rfFBselect, !Feedback );        /* EEK! Why the negation?                          (35)
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
-  pll( S::ledMode, LEDmode::lockDetect );                                 // Ding. Winner!   (36)
+  pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (36)
 ; Marker mk;
-  // pll( HW::ctrl[HW::A] ); // Needed if 1 < sizeof(ctrl)
   pll(mk(dBm::plus2,AMPL)).phAdj(OFF).set(mk(0/360.,PHAS));
-  HW::rf(ON);  //pll( HW::ctrl[HW::B] ).phAdj(ON).set(mk(180/360.,PHAS)).flush().lock() );
-  bool dir{ 0 }, debug{ 0 };
+  bool dir{ 0 };
   // State trajectory versus frequency along the line: loci(f) = mk(f) = mk(slope * f + bottom)
   constexpr u32 bottom{ 34375000 }, top{ 100000000 }, slope{ IOTA * 25 }; auto f{ top };
-; while(1) {
+; while(ON) {
     delay(2222);
     if(top < f) { dir = 1; } else if(bottom > f) { dir = 1; }
     pll(mk( f )).flush().lock();
-    if(debug) {
+    HW::rf(ON);
+    #ifdef DEBUG
       pr("rfpwr:",pll().rfpwr); pr("rfdiv:",pll().rfdiv); pr("denom:",pll().denom);
       pr("whole:",pll().whole); pr("numer:",pll().numer); pr("propo:",pll().propo);
       pr("a:", mk(AMPL)); pd("p:", mk(PHAS),4); pd("f:", mk());
-      pr(f); pr(f - mk()); pr('\n'); }
+      pr(f); pr(f - mk()); pr('\n');
+    #endif
     f += dir ? slope : -slope; } } // kd9fww
