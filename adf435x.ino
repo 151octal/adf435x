@@ -1,11 +1,11 @@
-/* ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~350 lines, ~9k mem).
-  https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
-  https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
-  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet   */
- #include <Arduino.h>
- #include <ArxContainer.h>
- #include <BasicEncoder.h>
- #include <SPI.h>
+/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~350 lines, ~9k mem).
+    https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
+    https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
+    https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
+  #include <Arduino.h>
+  #include <ArxContainer.h>
+  #include <BasicEncoder.h>
+  #include <SPI.h>
 #define DEBUG // Uses ≈2.5k program space.
 //  #undef DEBUG
 ; enum Enable { OFF = 0, ON = 1 };
@@ -59,11 +59,11 @@ namespace Hardware {
   constexpr ULL   MAX_FREQ{ MAX_VCO };
   constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
   constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
-  constexpr auto  CORRECTION{ -130 };               // Determined by working in reverse, from
+; constexpr auto  CORRECTION{ -130 };               // Determined by working in reverse, from
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, below.
   constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq.
-  constexpr auto M0{ 5U }, M4{ M0*M0*M0*M0 };      
+  constexpr auto  M0{ 5U }, M4{ M0*M0*M0*M0 };      
   constexpr enum  PICK { SML = 0, LRG } size = SML; // Pick a modulus not divisible by {2,3}.
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // SML: Longer lock time.
     static_assert((4096>MOD) && (MOD%2) && (MOD%3));// 12 bits with spur avoidance
@@ -93,13 +93,13 @@ constexpr auto OVERLAYED_REGISTERS{ 6 };
 constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = {  /*
   Human deduced via inspection.
     OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
-    RANK:                 Datasheet Register Number = OVERLAYED_REGISTERS - 1 - RANK
+    RANK:                 RANK = OVERLAYED_REGISTERS - 1 - Datasheet Register Number.
                           tx() in ascending RANK order, unless not dirty. Thus, datasheet
-                          register '0' is always tx()'d last (and will always need to be
-                          tx()'d). See flush() below.
+                          register '0' is always tx()'d last (and will always need to be tx()'d).
+                          See flush() below.
     OFFSET:               Zero based position of the field's least significant bit.
     WIDTH:                Correct. The number of bits in a field (and is at least one).
-                          •You get a gold star•                                       */
+                          •You get a gold star• */
   [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
   [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phAdj] = {4, 28, 1},
   [S::counterReset] = {3, 3, 1},  [S::cp3state] = {3, 4, 1},      [S::idle] = {3, 5, 1},
@@ -194,8 +194,8 @@ class SpecifiedOvelay {
   auto set( const S& sym,const u16& val ) -> decltype(*this) { return operator()( sym,val ); }
     // Wrapper for opertor()( loci )
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
-} final; using SO = SpecifiedOvelay; const LayoutSpecification * const SO::layoutSpec{ ADF435x };
-    /* ©2024 kd9fww */
+} final; const LayoutSpecification * const SpecifiedOvelay::layoutSpec{ ADF435x };
+  /* ©2024 kd9fww */
 class Marker {
   using DBL = double;
   private:
@@ -308,7 +308,8 @@ auto loop() -> void { using namespace Synthesis;
   pll(mk(dBm::plus2,AMPL)).phAdj(OFF).set(mk(0/360.,PHAS));
   bool dir{ 0 };
   // State trajectory versus frequency along the line: loci(f) = mk(f) = mk(slope * f + bottom)
-  constexpr u32 bottom{ 34375000 }, top{ 100000000 }, slope{ IOTA * 25 }; auto f{ top };
+  constexpr  u16  kHz{ 1000 };  constexpr  u32  MHz{ kHz * 1000 };
+  constexpr u32 bottom{ 34*MHz + 375*kHz }, top{ 100*MHz }, slope{ IOTA * 25 }; auto f{ top };
 ; while(ON) {
     delay(2222);
     if(top < f) { dir = 1; } else if(bottom > f) { dir = 1; }
