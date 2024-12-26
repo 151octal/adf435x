@@ -6,7 +6,7 @@
   #include <ArxContainer.h>
   #include <BasicEncoder.h>
   #include <SPI.h>
-#define DEBUG // Uses ≈2.5k program space.
+#define DEBUG // Consumes ≈2.5k program space.
 //  #undef DEBUG
 ; enum Enable { OFF = 0, ON = 1 };
   using ULL = unsigned long long;
@@ -16,6 +16,7 @@
   void pr( const double& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
   void pr( const u16& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
   void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
+  void pr( const ULL& arg, int num = DEC ) { Serial.print(u32(arg), num); pr(' '); }
   void pd( const char* const s, const double& arg, int num = 0 ) { pr(s), pr(arg,num); }
   void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
  /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
@@ -67,7 +68,7 @@ namespace Hardware {
   constexpr enum  PICK { SML = 0, LRG } size = SML; // Pick a modulus not divisible by {2,3}.
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // SML: Longer lock time.
     static_assert((4096>MOD) && (MOD%2) && (MOD%3));// 12 bits with spur avoidance
-  constexpr  u16  IOTA{ 1000 };                     // REF / Rcounter = PFD = Modulus * IOTA
+; constexpr  u16  IOTA{ 1000 };                     // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  R_COUNTER{ u16(OSC / IOTA / MOD) };
     static_assert(R_COUNTER * IOTA == OSC / MOD);   // Quotient remainder must be zero.
     static_assert((0 < R_COUNTER) && (1024 > R_COUNTER));           // Non-zero, 10 bits.
@@ -306,19 +307,21 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (36)
 ; Marker mk;
   pll(mk(dBm::plus2,AMPL)).phAdj(OFF).set(mk(0/360.,PHAS));
-  bool dir{ 0 };
+  bool dir{ 1 }, once{ 0 };
   // State trajectory versus frequency along the line: loci(f) = mk(f) = mk(slope * f + bottom)
-  constexpr  u16  kHz{ 1000 };  constexpr  u32  MHz{ kHz * 1000 };
-  constexpr u32 bottom{ 34*MHz + 375*kHz }, top{ 100*MHz }, slope{ IOTA * 25 }; auto f{ top };
+  constexpr u32 kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz }, top{ 100*MHz };
+  constexpr int df{ IOTA * 25 }; auto f{ MIN_FREQ * 2 - df };
 ; while(ON) {
     delay(2222);
-    if(top < f) { dir = 1; } else if(bottom > f) { dir = 1; }
     pll(mk( f )).flush().lock();
     HW::rf(ON);
     #ifdef DEBUG
+      pr(f - mk()); 
       pr("rfpwr:",pll().rfpwr); pr("rfdiv:",pll().rfdiv); pr("denom:",pll().denom);
       pr("whole:",pll().whole); pr("numer:",pll().numer); pr("propo:",pll().propo);
       pr("a:", mk(AMPL)); pd("p:", mk(PHAS),4); pd("f:", mk());
-      pr(f); pr(f - mk()); pr('\n');
+      pr(f); pr('\n');
+      do /* nothing */; while(once);
     #endif
-    f += dir ? slope : -slope; } } // kd9fww
+    if(top < f) { dir = 1; } else if(bottom > f) { dir = 1; }
+    f += dir ? df : -df; } } // kd9fww
