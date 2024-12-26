@@ -16,7 +16,6 @@
   void pr( const double& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
   void pr( const u16& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
   void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
-  void pr( const ULL& arg, int num = DEC ) { Serial.print(u32(arg), num); pr(' '); }
   void pd( const char* const s, const double& arg, int num = 0 ) { pr(s), pr(arg,num); }
   void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
  /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
@@ -39,7 +38,7 @@ namespace Hardware {
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
 } namespace HW = Hardware; namespace Synthesis {
   enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum  Axis { FREQ = 0, PHAS, AMPL, STEP };
+  enum  Axis { AMPL, FREQ, PHAS };
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 }; 
@@ -60,20 +59,20 @@ namespace Hardware {
   constexpr ULL   MAX_FREQ{ MAX_VCO };
   constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
   constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
-; constexpr auto  CORRECTION{ -130 };               // Determined by working in reverse, from
+; constexpr auto  CORRECTION{ -150 };               // Determined by working in reverse, from
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, below.
   constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured osc. freq.
-  constexpr auto  M0{ 5U }, M4{ M0*M0*M0*M0 };      
-  constexpr enum  PICK { SML = 0, LRG } size = SML; // Pick a modulus not divisible by {2,3}.
-  constexpr auto  MOD{ size ? M4 * M0 : M4 };       // SML: Longer lock time.
-    static_assert((4096>MOD) && (MOD%2) && (MOD%3));// 12 bits with spur avoidance
-; constexpr  u16  IOTA{ 1000 };                     // REF / Rcounter = PFD = Modulus * IOTA
-  constexpr auto  R_COUNTER{ u16(OSC / IOTA / MOD) };
-    static_assert(R_COUNTER * IOTA == OSC / MOD);   // Quotient remainder must be zero.
-    static_assert((0 < R_COUNTER) && (1024 > R_COUNTER));           // Non-zero, 10 bits.
-  constexpr auto  PFD = REF * (1+DBLR) / (1+TGLR) / R_COUNTER;      // Phase Frequency Detector
-    static_assert(MAX_PFD >= PFD);
+  constexpr auto  M0{ 5U }, M4{ M0*M0*M0*M0 };      // 5 raised to the fourth.
+  constexpr enum  PICK { SML = 0, LRG } size = SML; // SML: Longer lock time.
+  constexpr auto  MOD{ size ? M4 * M0 : M4 };       // Pick a modulus (not divisible by {2,3}).
+  static_assert((4096>MOD) && (MOD%2) && (MOD%3));  // 12 bits with spur avoidance.
+  constexpr  u16  IOTA{ 800 };                      // IOTA such that the following are exact.
+  constexpr auto  R_COUNTER{u16(OSC / IOTA / MOD)}; // REF / Rcounter = PFD = Modulus * IOTA
+  static_assert(R_COUNTER * IOTA == OSC / MOD);     // No remainder.
+  static_assert((0<R_COUNTER) && (1024>R_COUNTER)); // Non-zero, 10 bits.
+  constexpr auto  PFD = round(double(REF) * (1+DBLR) / (1+TGLR) / R_COUNTER);
+  static_assert((MAX_PFD >= PFD) && (PFD * R_COUNTER == REF));
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -206,8 +205,6 @@ class Marker {
     u32 pfd; u16 spacing;
     auto amplitude() -> const u8 { return loci.rfpwr; }
     auto amplitude(const dBm& a) -> const decltype(loci) { loci.rfpwr = a; return loci; }
-    auto delta() -> const decltype(spacing) { return spacing; }
-    auto delta(const DBL& step) -> const decltype(loci) { spacing = step; return loci; }
     auto phi() -> const DBL { return (loci.propo / DBL(loci.denom - 1)); }
     auto phi(DBL normalized) -> const decltype(loci) {  // 'normalized' is a function scope copy.
         normalized = (0 > normalized) ? 0 : normalized;
@@ -231,19 +228,17 @@ class Marker {
   Marker( const u32& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
-    default:
     case AMPL:  return amplitude(static_cast<dBm>(arg));
+    default:
     case FREQ:  return omega(arg);
-    case PHAS:  return phi(arg);
-    case STEP:  return delta(arg); } }
+    case PHAS:  return phi(arg); } }
       // Marker value dispatcher. Returns Axis selective value from State
   const auto operator()(Axis axis = FREQ) -> const decltype(omega()) {
     switch (axis) {
-      default:
       case AMPL:  return static_cast<double>(amplitude());
+      default:
       case FREQ:  return omega();
-      case PHAS:  return phi();
-      case STEP:  return delta(); } } };
+      case PHAS:  return phi(); } } };
 /* End Synthesis:: */ }
   /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
   until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
@@ -309,17 +304,17 @@ auto loop() -> void { using namespace Synthesis;
   pll(mk(dBm::plus2,AMPL)).phAdj(OFF).set(mk(0/360.,PHAS));
   // State trajectory versus frequency along the line: loci(f) = mk(f) = mk(slope * f + bottom)
   constexpr u32 kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz }, top{ 100*MHz };
-  constexpr int df{ IOTA * 25 }; auto f{ MIN_FREQ * 2 - df };
+  constexpr int df{ 25*kHz }; auto f{ MIN_FREQ * 2 - df };
 ; for(bool dir{ 1 }, once{ 0 }; ON; ) {
     pll(mk( f )).flush().lock();
     HW::rf(ON);
     #ifdef DEBUG
-      pr(f - mk()); 
-      pr("rfpwr:",pll().rfpwr); pr("rfdiv:",pll().rfdiv); pr("denom:",pll().denom);
-      pr("whole:",pll().whole); pr("numer:",pll().numer); pr("propo:",pll().propo);
-      pr("a:", mk(AMPL)); pd("p:", mk(PHAS),4); pd("f:", mk());
-      pr(f); pr('\n');
+      // pd("a:", mk(AMPL)); pd("p:", mk(PHAS),4); pd("f:", mk());
+      pr(f);
+      pr("rfpwr:",pll().rfpwr); pr("rfdiv:",pll().rfdiv); pr("propo:",pll().propo);
+      pr("denom:",pll().denom); pr("whole:",pll().whole); pr("numer:",pll().numer);
+      pr('\n');
     #endif
     do delay(2222); while(once);
-    if(top < f) { dir = 1; } else if(bottom > f) { dir = 1; }
+    if(top < f) { dir = 0; } else if(bottom > f) { dir = 1; }
     f += dir ? df : -df; } } // kd9fww
