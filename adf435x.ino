@@ -307,12 +307,10 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (36)
 ; Marker mk;
   pll(mk(dBm::plus2,AMPL)).phAdj(OFF).set(mk(0/360.,PHAS));
-  bool dir{ 1 }, once{ 0 };
   // State trajectory versus frequency along the line: loci(f) = mk(f) = mk(slope * f + bottom)
   constexpr u32 kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz }, top{ 100*MHz };
   constexpr int df{ IOTA * 25 }; auto f{ MIN_FREQ * 2 - df };
-; while(ON) {
-    delay(2222);
+; for(bool dir{ 1 }, once{ 0 }; ON; ) {
     pll(mk( f )).flush().lock();
     HW::rf(ON);
     #ifdef DEBUG
@@ -321,7 +319,7 @@ auto loop() -> void { using namespace Synthesis;
       pr("whole:",pll().whole); pr("numer:",pll().numer); pr("propo:",pll().propo);
       pr("a:", mk(AMPL)); pd("p:", mk(PHAS),4); pd("f:", mk());
       pr(f); pr('\n');
-      do /* nothing */; while(once);
     #endif
+    do delay(2222); while(once);
     if(top < f) { dir = 1; } else if(bottom > f) { dir = 1; }
     f += dir ? df : -df; } } // kd9fww
