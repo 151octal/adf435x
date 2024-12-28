@@ -56,7 +56,7 @@ namespace Hardware {
   constexpr u32   MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz.
   constexpr u32   MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
   constexpr u32   MIN_FREQ{ MIN_VCO / 64 };         // 34375 kHz (64: maximum rf divider value).
-  constexpr ULL   MAX_FREQ{ MAX_VCO };
+  constexpr auto  MAX_FREQ{ ULONG_MAX };
   constexpr auto  M0{ 5U }, M4{ M0*M0*M0*M0 };      // 5 raised to the fourth.
   constexpr enum  PICK { SML = 0, LRG } size = LRG; // SML: Longer lock time.
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // Pick a modulus (not divisible by {2,3}).
@@ -72,7 +72,7 @@ namespace Hardware {
  constexpr  auto  PFD = round(double(REF) * (1+DBLR) / (1+TGLR) / R_COUNT);
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
-  static_assert((MAX_PFD >= PFD));// && (PFD * R_COUNT == REF));
+  static_assert((MAX_PFD >= PFD) && (PFD * R_COUNT == REF));
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -196,7 +196,7 @@ class SpecifiedOverlay {
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
   /* ©2024 kd9fww */
-class Marker {
+class Resolver {
   using DBL = double;
   private:
     // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
@@ -225,14 +225,14 @@ class Marker {
       loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
       return loci;  }
   public:
-  Marker( const u32& actual_pfd = PFD, const u16& step = IOTA )
+  Resolver( const u32& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     case AMPL:  return amplitude(static_cast<dBm>(arg));
     default:
     case FREQ:  return omega(arg);
     case PHAS:  return phi(arg); } }
-      // Marker value dispatcher. Returns Axis selective value from State
+      // Resolver value dispatcher. Returns Axis selective value from State
   const auto operator()(Axis axis = FREQ) -> const decltype(omega()) {
     switch (axis) {
       case AMPL:  return static_cast<double>(amplitude());
@@ -240,8 +240,14 @@ class Marker {
       case FREQ:  return omega();
       case PHAS:  return phi(); } } };
 /* End Synthesis:: */ }
-  /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
-  until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
+struct Delta {
+    u32 delta;
+    Delta(u32 d = 1) : delta{ (0 == d) ? 1 : d } {}
+    auto operator()() -> const u32 { return delta; }
+    auto operator()(const u32& increment) -> void { delta = (0 == increment) ? 1 : increment; }
+  };
+    /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
+    until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void { using namespace Hardware;    // "And, away we go ..." Gleason.
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
   rf( OFF );
@@ -300,19 +306,19 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::rfFBselect, !Feedback );        /* EEK! Why the negation?                          (35)
   It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
   pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (36)
-; Marker mk;
-  pll(mk(dBm::plus2,AMPL)).phAdj(OFF).set(mk(0/360.,PHAS));
-  // State trajectory versus frequency along a line: loci(f) = mk(f) = mk(slope * f + bottom)
+; Resolver rr;
+  pll(rr(dBm::plus2,AMPL)).phAdj(OFF).set(rr(0/360.,PHAS));
+  // State trajectory versus frequency along a line: loci(f) = rr(f) = rr(slope * f + bottom)
   constexpr u32 kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz }, top{ 100*MHz };
-  constexpr int df{ 25*kHz }; auto f{ MIN_FREQ * 2 - df };
+  Delta df( 25*kHz ); auto f{ MIN_FREQ * 2 - df() };
  for(bool dir{ 1 }, once{ 0 }; ON; ) {
-    pll(mk( f )).flush().lock();
+    pll(rr( f )).flush().lock();
     HW::rf(ON);
     #ifdef DEBUG
-      // pd("a:", mk(AMPL)); pd("p:", mk(PHAS),4); pd("f:", mk());
+      // pd("a:", rr(AMPL)); pd("p:", rr(PHAS),4); pd("f:", rr());
       pr(f); pr("rfpwr:",pll().rfpwr); pr("rfdiv:",pll().rfdiv); pr("propo:",pll().propo);
       pr("denom:",pll().denom); pr("whole:",pll().whole); pr("numer:",pll().numer); pr('\n');
     #endif
     do delay(2222); while(once);
     if(top < f) { dir = 0; } else if(bottom > f) { dir = 1; }
-    f += dir ? df : -df; } } // kd9fww
+    f += dir ? df() : -df(); } } // kd9fww
