@@ -9,9 +9,9 @@
 #define DEBUG
 //  #undef DEBUG
 ; enum Enable { OFF = 0, ON = 1 };
-  using ULL = unsigned long long;
     #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
+  void pr( const u8& uc ) { Serial.print(uc); }
   void pr( const char* const s ) { Serial.print(s); }
   void pr( const double& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
   void pr( const u16& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
@@ -38,10 +38,11 @@ namespace Hardware {
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
 } namespace HW = Hardware; namespace Synthesis {
  enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum  Axis { AMPL, FREQ, PHAS };
+  enum  Axis { AMPL, FREQ, DF, PHAS, DP };
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 }; 
+  enum  Direction : char { up, dn, left, rght };
   constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
@@ -51,28 +52,31 @@ namespace Hardware {
   enum  NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
   enum  PRSCL { four5ths = 0, eight9ths };
   enum  PDpolarity { negative = 0, positive };
- constexpr  ULL   MAX_VCO{ 4400000000 };            // 4400 MHz.
-  constexpr u32   MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
-  constexpr u32   MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz.
-  constexpr u32   MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
-  constexpr u32   MIN_FREQ{ MIN_VCO / 64 };         // 34375 kHz (64: maximum rf divider value).
-  constexpr auto  MAX_FREQ{ ULONG_MAX };
+  auto  power(u8 radix, u8 exponent) -> const double { // radix raised to exponent
+    double rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
+ constexpr  u32   kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz };
+  constexpr auto  MAX_VCO{ 4400000000U };           // 4400 MHz.
+  constexpr  u32  MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
+  constexpr  u32  MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz.
+  constexpr  u32  MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
+  constexpr  u32  MIN_FREQ{ MIN_VCO / 64 };         // 34375 kHz (64: maximum rf divider value).
+  constexpr auto  MAX_FREQ{ MAX_VCO };
   constexpr auto  M0{ 5U }, M4{ M0*M0*M0*M0 };      // 5 raised to the fourth.
-  constexpr enum  PICK { SML = 0, LRG } size = LRG; // SML: Longer lock time.
+  constexpr enum  PICK { SML = 0, LRG } size = SML; // SML: Longer lock time.
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // Pick a modulus (not divisible by {2,3}).
   static_assert((4096>MOD) && (MOD%2) && (MOD%3));  // 12 bits with spur avoidance.
   constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
  constexpr   u16  IOTA{ 500 };                      // IOTA such that the following are exact.
-  constexpr auto  R_COUNT{u16(OSC / IOTA / MOD)};   // REF / Rcounter = PFD = Modulus * IOTA
+  constexpr auto  R_COUNT{ u16(OSC / IOTA / MOD) }; // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
- constexpr  auto  CORRECTION{ -9 * int(R_COUNT) };  // Determined by working in reverse, from
+ constexpr  auto  CORRECTION{ -148 };               // Determined by working in reverse, from
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, next line.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured reference oscillator frequency.
   constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
- constexpr  auto  PFD = round(double(REF) * (1+DBLR) / (1+TGLR) / R_COUNT);
+ constexpr  auto  PFD = double(REF) * (1+DBLR) / (1+TGLR) / R_COUNT;
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
-  static_assert((MAX_PFD >= PFD) && (PFD * R_COUNT == REF));
+  static_assert((MAX_PFD >= PFD));// && (PFD * R_COUNT == REF));
 enum Symbol : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
@@ -113,7 +117,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
   [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
   static_assert(Symbol::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-struct State { u8 rfpwr, rfdiv; u16 denom, whole, numer, propo; };
+struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
   constexpr State INIT{ 0, 0, 0, 0, 1, dBm::minus4 };
   /* ©2024 kd9fww */
 class SpecifiedOverlay {
@@ -162,31 +166,31 @@ class SpecifiedOverlay {
     // Parameter Storage Intercept
   auto operator()( const S& sym,const u16& val ) -> decltype(*this) { switch(sym) {
     default:                return raw( sym,val );  // Beware of { case: fall thru }
-    case S::fraction:     if(val !=  store.numer) {
-                            return raw( sym,store.numer  = val ); }
+    case S::fraction:     if(val !=  store.numr) {
+                            return raw( sym,store.numr  = val ); }
                       else  return raw( sym,val );
-    case S::integer:      if(val !=  store.whole) {
+    case S::integer:      if(val !=  store.whol) {
       raw( S::prescaler,(75 < val) ? PRSCL::eight9ths : PRSCL::four5ths );
-                            return raw( sym,store.whole = val ); }
+                            return raw( sym,store.whol = val ); }
                       else  return raw( sym,val );
-    case S::phase:        if(val !=  store.propo) {
-                            return raw( sym,store.propo  = val ); }
+    case S::phase:        if(val !=  store.prop) {
+                            return raw( sym,store.prop  = val ); }
                       else  return raw( sym,val );
-    case S::modulus:      if(val !=  store.denom) {
+    case S::modulus:      if(val !=  store.dnom) {
       raw( S::LnLsModes,nsMode = (lowSpur == nsMode) ? ((50 > val) ? lowNoise : nsMode) : nsMode);
-                            return raw( sym,store.denom = val ); }
+                            return raw( sym,store.dnom = val ); }
                       else  return raw( sym,val );
-    case S::rfDivSelect:  if(val !=  store.rfdiv) {
-                            return raw( sym,store.rfdiv  = val ); }
+    case S::rfDivSelect:  if(val !=  store.rdiv) {
+                            return raw( sym,store.rdiv  = val ); }
                       else  return raw( sym,val );
-    case S::rfOutPwr:     if(static_cast<dBm>(val) != store.rfpwr) { 
+    case S::rfOutPwr:     if(static_cast<dBm>(val) != store.rpwr) { 
                             raw( S::rfSoftEnable, ON );
-                            return raw( sym,store.rfpwr = static_cast<dBm>(val) ); }
+                            return raw( sym,store.rpwr = static_cast<dBm>(val) ); }
                       else  return raw( sym,val );                                } }
       // Parameter dispatcher
   auto operator()( const State& loci ) -> decltype(*this) {
-    set( S::fraction,loci.numer ).set( S::integer,loci.whole ).set( S::modulus,loci.denom );
-    set( S::phase,loci.propo ).set( S::rfDivSelect,loci.rfdiv ).set( S::rfOutPwr,loci.rfpwr );
+    set( S::fraction,loci.numr ).set( S::integer,loci.whol ).set( S::modulus,loci.dnom );
+    set( S::phase,loci.prop ).set( S::rfDivSelect,loci.rdiv ).set( S::rfOutPwr,loci.rpwr );
     return *this;  }
   auto operator()() -> const decltype(store) { return store; }
   auto phAdj( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
@@ -195,6 +199,48 @@ class SpecifiedOverlay {
     // Wrapper for opertor()( loci )
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
+  template <size_t N>
+struct Cursor {
+  size_t index;
+  Cursor(const size_t& ix = 0) : index{ constrain(ix, 0, N-1) } {}  // beware of macros
+  auto operator()() -> decltype(index) { return index; }
+  auto operator()(u8 ix) -> decltype(index) { return index = constrain(ix, 0, N-1); }
+  auto operator++() -> decltype(*this) { if(N-1 < ++index) index = 0; return *this; }
+  auto operator++(int) -> decltype(*this) { return operator++(); }
+  auto operator--() -> decltype(*this) { if(0 == index--) index = N-1; return *this; }
+  auto operator--(int) -> decltype(*this) { return operator--(); } };
+    //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
+  template <size_t N, size_t Radix = 10>
+struct Numeral {
+  Cursor<N> cursor;
+  std::deque<u8,N> numeral;
+  Numeral(double value = bottom) { operator()(value); }
+  auto size() -> const size_t { return N; }
+  auto operator()(Direction d) -> void { switch(d) {
+    default:  break;
+    case up:  { double sum{ operator()() }; sum += power(Radix, cursor());
+                operator()(constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
+    case dn:  { double sum{ operator()() }; sum -= power(Radix, cursor());
+                operator()(constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
+    case left: ++cursor; break;
+    case rght: --cursor; break; } }
+  auto operator()(double value) -> void {
+    numeral.clear();
+    value = floor(value);                           // Truncate any non-integral component.
+    for(u8 index{0}; index!=N; index++) {
+      numeral.push_front(value / power(Radix, N-1-index));
+      value = fmod(value, power(Radix, N-1-index)); } };
+  auto operator()() -> const double {
+    double s{0};
+    for(u8 index{0}; index!=numeral.size(); index++) {
+     s += numeral[index] * power(Radix, index); }
+    return s; }
+  auto operator+(const double& value) -> decltype(*this) {
+    value = floor(value);                           // Truncate any non-integral component.
+    operator()(operator()() + value); return *this; }
+  auto operator-(const double& value) -> decltype(*this) {
+    value = floor(value);                           // Truncate any non-integral component.
+    operator()(operator()() - value); return *this; } };
   /* ©2024 kd9fww */
 class Resolver {
   using DBL = double;
@@ -202,30 +248,29 @@ class Resolver {
     // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
     // Where: Amplitude <- |magnitude|, Frequency <- omega, and Phase <- phi, are all scalars.
     State loci{ INIT };
-    u32 pfd; u16 spacing;
-    auto amplitude() -> const u8 { return loci.rfpwr; }
-    auto amplitude(const dBm& a) -> const decltype(loci) { loci.rfpwr = a; return loci; }
-    auto phi() -> const DBL { return (loci.propo / DBL(loci.denom - 1)); }
-    auto phi(DBL normalized) -> const decltype(loci) {  // 'normalized' is a function scope copy.
-        normalized = (0 > normalized) ? 0 : normalized;
-        normalized = (1 < normalized) ? 1 : normalized;
-        auto proportion{ u16(round(normalized * (loci.denom - 1))) };
-        loci.propo = (1 > proportion) ? 1 : proportion;
+    DBL pfd; u16 spacing;
+    auto amplitude() -> const u8 { return loci.rpwr; }
+    auto amplitude(const dBm& a) -> const decltype(loci) { loci.rpwr = a; return loci; }
+    auto phi() -> const DBL { return (loci.prop / DBL(loci.dnom - 1)); }
+    auto phi(DBL normalized) -> const decltype(loci) {
+        normalized = constrain(normalized, 0, 1);
+        auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
+        loci.prop = (1 > proportion) ? 1 : proportion;
         return loci; }
     auto omega() -> const DBL {
-      return pfd * (loci.whole + DBL(loci.numer) / loci.denom) / pow(2,loci.rfdiv); }
-    auto omega(DBL freq) -> decltype(loci) {            // 'freq' is a function scope copy.
-      freq = (MIN_FREQ < freq) ? freq : MIN_FREQ;
-      freq = (MAX_FREQ > freq) ? freq : MAX_FREQ;
-      loci.rfdiv = u16( floor( log2(MAX_VCO / freq) ) );
-      auto fractional_N{ freq / pfd * pow(2, loci.rfdiv) };
-      loci.whole = u16( floor( fractional_N ) );
-      loci.whole = (22 < loci.whole) ? loci.whole : 22;
-      loci.denom = u16( ceil( OSC / R_COUNT / spacing ) );
-      loci.numer = u16( round( (fractional_N - loci.whole) * loci.denom) );
+      return pfd * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
+    auto omega(DBL freq) -> const decltype(loci) {
+      freq = floor(freq);                           // Truncate any non-integral component.
+      freq = constrain(freq, MIN_FREQ, MAX_FREQ);
+      loci.rdiv = u16( ceil( log2(MIN_VCO / freq) ) );
+      auto fractional_N{ freq / pfd * pow(2, loci.rdiv) };
+      loci.whol = u16( floor( fractional_N ) );
+      loci.whol = (22 < loci.whol) ? loci.whol : 22;
+      loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
+      loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
       return loci;  }
   public:
-  Resolver( const u32& actual_pfd = PFD, const u16& step = IOTA )
+  Resolver( const double& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
   auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     case AMPL:  return amplitude(static_cast<dBm>(arg));
@@ -233,19 +278,18 @@ class Resolver {
     case FREQ:  return omega(arg);
     case PHAS:  return phi(arg); } }
       // Resolver value dispatcher. Returns Axis selective value from State
-  const auto operator()(Axis axis = FREQ) -> const decltype(omega()) {
+  const auto operator()(Axis axis = FREQ) -> const DBL {
     switch (axis) {
       case AMPL:  return static_cast<double>(amplitude());
       default:
       case FREQ:  return omega();
       case PHAS:  return phi(); } } };
-/* End Synthesis:: */ }
-struct Delta {
-    u32 delta;
-    Delta(u32 d = 1) : delta{ (0 == d) ? 1 : d } {}
-    auto operator()() -> const u32 { return delta; }
-    auto operator()(const u32& increment) -> void { delta = (0 == increment) ? 1 : increment; }
-  };
+struct Panel {
+  Numeral<10>   f, df;
+  Cursor<10>    c;
+  Panel(u32 freq = bottom, u32 incr = 25*kHz) { f(freq); df(incr); }
+  auto operator()(Axis axis) -> void {  } };
+;/* End Synthesis:: */ }
     /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void { using namespace Hardware;    // "And, away we go ..." Gleason.
@@ -265,7 +309,7 @@ auto loop() -> void { using namespace Synthesis;
   #ifdef DEBUG
   Serial.begin(1000000L); delay(1000L);
   #endif // Quantiy S::_end calls of set() are required, in any order.
-  //                     S::fraction, S::integer, S::modulus S::rfDivSelect      (1) (2) (3) (34)
+  //                     S::fraction, S::integer, S::modulus S::rfDivSelect      (1) (2) (3) (36)
   pll( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
   pll( S::phAdj, OFF );                                                                    // (5)
   pll( S::prescaler,PRSCL::eight9ths );  // Possiblly redundant                            // (6)
@@ -277,7 +321,7 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::ldf, LockDetectFunction::fracN );                                               // (12)
   pll( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.           (13)
   pll( S::dblBfr, ON );                                                                   // (14)
-  pll( S::rCounter, R_COUNT );                                                          // (15)
+  pll( S::rCounter, R_COUNT );                                                            // (15)
   pll( S::refToggler, TGLR );                                                             // (16)
   pll( S::refDoubler, DBLR );                                                             // (17)
   pll( S::muxOut, MuxOut::HiZ );          // see 'cheat sheet'                               (18)
@@ -292,33 +336,31 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::csr, ON );                      // Cycle Slip reduction                            (22)
   pll( S::chrgCancel, OFF );                                                              // (23)
   pll( S::abp, ABPnS::nS6fracN );                                                         // (24)
-  pll( S::bscMode,(MIN_PFD < PFD) ? BSCmd::automatic : BSCmd::programmed);                // (25)
+  pll( S::bscMode,(MIN_PFD < PFD) ? BSCmd::programmed : BSCmd::automatic );               // (25)
   pll( S::rfOutPwr, minus4 );             // Possiblly redundant                          // (26)
   pll( S::rfSoftEnable, ON );                                                             // (27)
   pll( S::auxOutPwr, minus4 );                                                            // (28)
   pll( S::auxOutEnable, OFF );            // Pin not connected.                              (29)
-  pll( S::auxFBselect, !Feedback );                                                       // (30)
-  pll( S::muteTillLD, ON );                                                               // (31)
-  pll( S::vcoPwrDown, OFF );                                                              // (32)
-  auto BscClkDiv = ceil(double(PFD) / MIN_PFD);
-  // auto BscClk = double(REF) / R_COUNT / BscClkDiv;
-  pll( S::bndSelClkDv, u8(BscClkDiv) );                                                   // (33)
-  pll( S::rfFBselect, !Feedback );        /* EEK! Why the negation?                          (35)
-  It works NEGATED. I'm stumped. Perhaps I've been daVinci'd. */
-  pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (36)
-; Resolver rr;
-  pll(rr(dBm::plus2,AMPL)).phAdj(OFF).set(rr(0/360.,PHAS));
+  pll( S::muteTillLD, ON );                                                               // (30)
+  pll( S::vcoPwrDown, OFF );                                                              // (31)
+  pll( S::bndSelClkDv, u8(ceil(double(PFD) / MIN_PFD)) );                                                   // (32)
+  pll( S::rfFBselect, !Feedback );  // EEK! Why the negation? Perhaps I've been daVinci'd.   (33)
+  pll( S::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
+  pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
+; Panel panel;
+  Resolver resolver;
+  pll(resolver(dBm::plus2,AMPL)).phAdj(OFF).set(resolver(0/360.,PHAS));
   // State trajectory versus frequency along a line: loci(f) = rr(f) = rr(slope * f + bottom)
-  constexpr u32 kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz }, top{ 100*MHz };
-  Delta df( 25*kHz ); auto f{ MIN_FREQ * 2 - df() };
+  auto top{ 100*MHz };
+  panel.f(bottom * 2);
  for(bool dir{ 1 }, once{ 0 }; ON; ) {
-    pll(rr( f )).flush().lock();
+    pll(resolver( panel.f() )).flush().lock();
     HW::rf(ON);
     #ifdef DEBUG
       // pd("a:", rr(AMPL)); pd("p:", rr(PHAS),4); pd("f:", rr());
-      pr(f); pr("rfpwr:",pll().rfpwr); pr("rfdiv:",pll().rfdiv); pr("propo:",pll().propo);
-      pr("denom:",pll().denom); pr("whole:",pll().whole); pr("numer:",pll().numer); pr('\n');
+      pr(panel.f()); pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
+      pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr); pr('\n');
     #endif
-    do delay(2222); while(once);
-    if(top < f) { dir = 0; } else if(bottom > f) { dir = 1; }
-    f += dir ? df() : -df(); } } // kd9fww
+    do delay(1666); while(once);
+    if(top <= panel.f()) { dir = 0; } else if(bottom > panel.f()) { dir = 1; }
+    panel.f(panel.f() + (dir ? 50 * panel.df() : -panel.df())); } } // kd9fww
