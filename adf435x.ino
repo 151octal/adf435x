@@ -20,7 +20,6 @@
   void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
   void pd( const char* const s, const double& arg, int num = 0 ) { pr(s), pr(arg,num); }
   void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
-//  void pr( const LL& arg ) { }
  /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
       default: break; case 8: case 16: case 24: pr(' '); }            // in byte sized chunks,
     pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time. */
@@ -217,9 +216,20 @@ class Resolver {
         auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
         loci.prop = (1 > proportion) ? 1 : proportion;
         return loci; }
-    auto omega() -> const DBL {
-      return pfd * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
-    auto omega(DBL freq) -> const decltype(loci) {
+    auto omega() -> const LL {
+      return LL(pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
+    auto omega(LL freq) -> const decltype(loci) {
+      freq = constrain(freq, MIN_FREQ, MAX_FREQ);
+      auto loChunk{ double(freq & ULONG_MAX) };
+      if(ULONG_MAX < freq) loci.rdiv = 1;
+      else loci.rdiv = u16( ceil( log2(MIN_VCO / loChunk) ) );
+      auto fractional_N{ loChunk / pfd * pow(2, loci.rdiv) };
+      loci.whol = u16( floor( fractional_N ) );
+      loci.whol = (22 < loci.whol) ? loci.whol : 22;
+      loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
+      loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
+      return loci; }
+    /*  auto omega(DBL freq) -> const decltype(loci) {
       freq = constrain(floor((0 > freq) ? -freq : freq), MIN_FREQ, MAX_FREQ);
       loci.rdiv = u16( ceil( log2(MIN_VCO / freq) ) );
       auto fractional_N{ freq / pfd * pow(2, loci.rdiv) };
@@ -227,22 +237,22 @@ class Resolver {
       loci.whol = (22 < loci.whol) ? loci.whol : 22;
       loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
       loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
-      return loci;  }
+      return loci;  }*/
   public:
   Resolver( const double& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
-  auto operator()(DBL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
+  auto operator()(LL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     case AMPL:  return amplitude(static_cast<dBm>(arg));
     default:
     case FREQ:  return omega(arg);
-    case PHAS:  return phi(arg); } }
+    case PHAS:  return phi(double(arg)); } }
       // Resolver value dispatcher. Returns Axis selective value from State
-  const auto operator()(Axis axis = FREQ) -> const DBL {
+  const auto operator()(Axis axis = FREQ) -> const LL {
     switch (axis) {
-      case AMPL:  return static_cast<double>(amplitude());
+      case AMPL:  return static_cast<LL>(amplitude());
       default:
       case FREQ:  return omega();
-      case PHAS:  return phi(); } } };
+      case PHAS:  return static_cast<LL>(phi()); } } };
   template <size_t Digits>
 class Cursor {
   private:
@@ -281,7 +291,7 @@ class Numeral {
     for(u8 index{0}; index!=Digits; index++) {
       numeral.push_front(value / power(Radix, Digits-1-index));
       value = fmod(value, power(Radix, Digits-1-index)); } };
-  auto operator()() -> const LL { // decltype(numeral) { return numeral; }
+  auto operator()() -> const LL {
     LL sum{0};
     for(u8 index{0}; index!=numeral.size(); index++) sum += numeral[index] * power(Radix, index);
     return sum; }
@@ -298,7 +308,7 @@ struct Panel {
   Numeral<10,RADIX> f, df;
   Numeral<4,RADIX> pnumr, pdnom, dp;
   Numeral<1,4> a;
-  Panel( DBL freq = bottom, DBL dfreq = 25*kHz,
+  Panel( LL freq = bottom, LL dfreq = 25*kHz,
     DBL numer = 1, DBL denom = MOD, DBL dnumer = 1, u8 ampl = 0) {
       f(freq); df(dfreq); pnumr(numer); pdnom(denom); dp(dnumer); a(ampl); }
   auto operator()(Axis axis) -> void {  } };
@@ -372,10 +382,9 @@ auto loop() -> void { using namespace Synthesis;
  for(bool dir{ 1 }, once{ 0 }; ON; ) {
     pll(resolver( panel.f() )).flush().lock();
     #ifdef DEBUG
-      panel.f.pr();
-/*      pd("f:",panel.f()); pr("df:",panel.df());
-      pr("p:",panel.pnumr()); pr('/'); pr(panel.pdnom()); pr("dp:",panel.dp());
-      pr("a:",panel.a()); pr(' '); */
+      panel.f.pr(); panel.df.pr();
+      panel.dp.pr(); panel.pnumr.pr(); pr('/'); panel.pdnom.pr();
+      panel.a.pr(); pr(' ');
       pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
       pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr); pr('\n');
     #endif
