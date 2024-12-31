@@ -199,20 +199,24 @@ class SpecifiedOverlay {
     // Wrapper for opertor()( loci )
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
-  template <size_t N>
-struct Cursor {
-  size_t index;
-  Cursor(const size_t& ix = 0) : index{ constrain(ix, 0, N-1) } {}  // beware of macros
+  template <size_t Radix>
+class Cursor {
+  private:
+    size_t index;
+  public:
+  Cursor(const size_t& ix = 0)                      // Constrain() is a macro. So, beware.
+    : index{ constrain(ix, 0, Radix-1) } {}
+  virtual ~Cursor() {}
   auto operator()() -> decltype(index) { return index; }
-  auto operator()(u8 ix) -> decltype(index) { return index = constrain(ix, 0, N-1); }
-  auto operator++() -> decltype(*this) { if(N-1 < ++index) index = 0; return *this; }
+  auto operator()(u8 ix) -> decltype(index) { return index = constrain(ix, 0, Radix-1); }
+  auto operator++() -> decltype(*this) { if(Radix-1 < ++index) index = 0; return *this; }
   auto operator++(int) -> decltype(*this) { return operator++(); }
-  auto operator--() -> decltype(*this) { if(0 == index--) index = N-1; return *this; }
+  auto operator--() -> decltype(*this) { if(0 == index--) index = Radix-1; return *this; }
   auto operator--(int) -> decltype(*this) { return operator--(); } };
     //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
   template <size_t N, size_t Radix = 10>
 struct Numeral {
-  Cursor<N> cursor;
+  Cursor<Radix> cursor;
   std::deque<u8,N> numeral;
   Numeral(double value = bottom) { operator()(value); }
   auto size() -> const size_t { return N; }
@@ -231,14 +235,13 @@ struct Numeral {
       numeral.push_front(value / power(Radix, N-1-index));
       value = fmod(value, power(Radix, N-1-index)); } };
   auto operator()() -> const double {
-    double s{0};
-    for(u8 index{0}; index!=numeral.size(); index++) {
-     s += numeral[index] * power(Radix, index); }
-    return s; }
-  auto operator+(const double& value) -> decltype(*this) {
+    double sum{0};
+    for(u8 index{0}; index!=numeral.size(); index++) sum += numeral[index] * power(Radix, index);
+    return sum; }
+  auto operator+(double value) -> decltype(*this) {
     value = floor(value);                           // Truncate any non-integral component.
     operator()(operator()() + value); return *this; }
-  auto operator-(const double& value) -> decltype(*this) {
+  auto operator-(double value) -> decltype(*this) {
     value = floor(value);                           // Truncate any non-integral component.
     operator()(operator()() - value); return *this; } };
   /* ©2024 kd9fww */
@@ -285,8 +288,9 @@ class Resolver {
       case FREQ:  return omega();
       case PHAS:  return phi(); } } };
 struct Panel {
-  Numeral<10>   f, df;
-  Cursor<10>    c;
+  static constexpr size_t RADIX{10}, N_DIGITS{10};
+  Numeral<N_DIGITS> f, df;
+  Cursor<RADIX>     c;
   Panel(u32 freq = bottom, u32 incr = 25*kHz) { f(freq); df(incr); }
   auto operator()(Axis axis) -> void {  } };
 ;/* End Synthesis:: */ }
@@ -350,7 +354,7 @@ auto loop() -> void { using namespace Synthesis;
 ; Panel panel;
   Resolver resolver;
   pll(resolver(dBm::plus2,AMPL)).phAdj(OFF).set(resolver(0/360.,PHAS));
-  // State trajectory versus frequency along a line: loci(f) = rr(f) = rr(slope * f + bottom)
+  // State trajectory versus frequency along a line: loci(f) = resolver(slope * f + bottom)
   auto top{ 100*MHz };
   panel.f(bottom * 2);
  for(bool dir{ 1 }, once{ 0 }; ON; ) {
@@ -363,4 +367,4 @@ auto loop() -> void { using namespace Synthesis;
     #endif
     do delay(1666); while(once);
     if(top <= panel.f()) { dir = 0; } else if(bottom > panel.f()) { dir = 1; }
-    panel.f(panel.f() + (dir ? 50 * panel.df() : -panel.df())); } } // kd9fww
+    panel.f(panel.f() + (dir ? 40 * panel.df() : -(30 * panel.df()) )); } } // kd9fww
