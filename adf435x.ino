@@ -1,4 +1,4 @@
-/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~350 lines, ~9k mem).
+/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~400 lines, ~13k mem).
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
     https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
@@ -8,7 +8,9 @@
   #include <SPI.h>
 #define DEBUG
 //  #undef DEBUG
-; enum Enable { OFF = 0, ON = 1 };
+; using DBL = double;
+  using LL = long long;
+  enum Enable { OFF = 0, ON = 1 };
     #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
   void pr( const u8& uc ) { Serial.print(uc); }
@@ -18,6 +20,7 @@
   void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
   void pd( const char* const s, const double& arg, int num = 0 ) { pr(s), pr(arg,num); }
   void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
+//  void pr( const LL& arg ) { }
  /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
       default: break; case 8: case 16: case 24: pr(' '); }            // in byte sized chunks,
     pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time. */
@@ -43,17 +46,18 @@ namespace Hardware {
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 }; 
   enum  Direction : char { up, dn, left, rght };
-  constexpr enum FDBK { divided = 0, fundamental } Feedback = divided;
+  constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
   auto  log2(double arg) -> double { return log10(arg) / log10(2); };
   enum  LockDetectFunction{ fracN = 0, intN };
   enum  MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
   enum  NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
+  constexpr auto  OVERLAYED_REGISTERS{ 6 };
   enum  PRSCL { four5ths = 0, eight9ths };
   enum  PDpolarity { negative = 0, positive };
-  auto  power(u8 radix, u8 exponent) -> const double { // radix raised to exponent
-    double rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
+  auto  power(u8 radix, u8 exponent) -> const LL { // radix raised to exponent
+    LL rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
  constexpr  u32   kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz };
   constexpr auto  MAX_VCO{ 4400000000U };           // 4400 MHz.
   constexpr  u32  MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
@@ -93,7 +97,6 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     rfDivSelect,  rfFBselect,   ledMode,
     _end
   };  using S = Symbol;
-  constexpr auto OVERLAYED_REGISTERS{ 6 };
 constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = {  /*
   Human deduced via inspection.
     OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
@@ -199,54 +202,8 @@ class SpecifiedOverlay {
     // Wrapper for opertor()( loci )
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
-  template <size_t Radix>
-class Cursor {
-  private:
-    size_t index;
-  public:
-  Cursor(const size_t& ix = 0)                      // Constrain() is a macro. So, beware.
-    : index{ constrain(ix, 0, Radix-1) } {}
-  virtual ~Cursor() {}
-  auto operator()() -> decltype(index) { return index; }
-  auto operator()(u8 ix) -> decltype(index) { return index = constrain(ix, 0, Radix-1); }
-  auto operator++() -> decltype(*this) { if(Radix-1 < ++index) index = 0; return *this; }
-  auto operator++(int) -> decltype(*this) { return operator++(); }
-  auto operator--() -> decltype(*this) { if(0 == index--) index = Radix-1; return *this; }
-  auto operator--(int) -> decltype(*this) { return operator--(); } };
-    //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
-  template <size_t N, size_t Radix = 10>
-struct Numeral {
-  Cursor<Radix> cursor;
-  std::deque<u8,N> numeral;
-  Numeral(double value = bottom) { operator()(value); }
-  auto size() -> const size_t { return N; }
-  auto operator()(Direction d) -> void { switch(d) {
-    default:  break;
-    case up:  { double sum{ operator()() }; sum += power(Radix, cursor());
-                operator()(constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
-    case dn:  { double sum{ operator()() }; sum -= power(Radix, cursor());
-                operator()(constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
-    case left: ++cursor; break;
-    case rght: --cursor; break; } }
-  auto operator()(double value) -> void {
-    numeral.clear();
-    value = floor(value);                           // Truncate any non-integral component.
-    for(u8 index{0}; index!=N; index++) {
-      numeral.push_front(value / power(Radix, N-1-index));
-      value = fmod(value, power(Radix, N-1-index)); } };
-  auto operator()() -> const double {
-    double sum{0};
-    for(u8 index{0}; index!=numeral.size(); index++) sum += numeral[index] * power(Radix, index);
-    return sum; }
-  auto operator+(double value) -> decltype(*this) {
-    value = floor(value);                           // Truncate any non-integral component.
-    operator()(operator()() + value); return *this; }
-  auto operator-(double value) -> decltype(*this) {
-    value = floor(value);                           // Truncate any non-integral component.
-    operator()(operator()() - value); return *this; } };
-  /* ©2024 kd9fww */
+    /* ©2024 kd9fww */
 class Resolver {
-  using DBL = double;
   private:
     // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
     // Where: Amplitude <- |magnitude|, Frequency <- omega, and Phase <- phi, are all scalars.
@@ -256,15 +213,14 @@ class Resolver {
     auto amplitude(const dBm& a) -> const decltype(loci) { loci.rpwr = a; return loci; }
     auto phi() -> const DBL { return (loci.prop / DBL(loci.dnom - 1)); }
     auto phi(DBL normalized) -> const decltype(loci) {
-        normalized = constrain(normalized, 0, 1);
+        normalized = constrain((0 > normalized) ? -normalized : normalized, 0, 1);
         auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
         loci.prop = (1 > proportion) ? 1 : proportion;
         return loci; }
     auto omega() -> const DBL {
       return pfd * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
     auto omega(DBL freq) -> const decltype(loci) {
-      freq = floor(freq);                           // Truncate any non-integral component.
-      freq = constrain(freq, MIN_FREQ, MAX_FREQ);
+      freq = constrain(floor((0 > freq) ? -freq : freq), MIN_FREQ, MAX_FREQ);
       loci.rdiv = u16( ceil( log2(MIN_VCO / freq) ) );
       auto fractional_N{ freq / pfd * pow(2, loci.rdiv) };
       loci.whol = u16( floor( fractional_N ) );
@@ -287,11 +243,64 @@ class Resolver {
       default:
       case FREQ:  return omega();
       case PHAS:  return phi(); } } };
+  template <size_t Digits>
+class Cursor {
+  private:
+    size_t index;
+  public:
+  Cursor(const size_t& ix = 0)                      // Constrain() is a macro. So, beware.
+    : index{ constrain(ix, 0, Digits-1) } {}
+  virtual ~Cursor() {}
+  auto operator()() -> decltype(index) { return index; }
+  auto operator()(u8 ix) -> decltype(index) { return index = constrain(ix, 0, Digits-1); }
+  auto operator++() -> decltype(*this) { if(Digits-1 < ++index) index = 0; return *this; }
+  auto operator++(int) -> decltype(*this) { return operator++(); }
+  auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
+  auto operator--(int) -> decltype(*this) { return operator--(); } };
+    //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
+  template <size_t Digits, size_t Radix = 10>
+class Numeral {
+  private:
+    std::deque<u8,Digits> numeral;
+  public:
+  Cursor<Digits> cursor;
+  Numeral(LL value = bottom) { operator()(value); }
+  virtual ~Numeral() {}
+  auto operator[](const size_t& position) -> const u8 {
+    return numeral[ constrain(position, 0, Digits-1) ]; } 
+  auto operator()(Direction d) -> void { switch(d) {
+    default:  break;
+    case up:  { LL sum{ operator()() }; sum += power(Radix, cursor());
+                operator()( constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
+    case dn:  { LL sum{ operator()() }; sum -= power(Radix, cursor());
+                operator()( constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
+    case left: ++cursor; break;
+    case rght: --cursor; break; } }
+  auto operator()(LL value) -> void {
+    numeral.clear();
+    for(u8 index{0}; index!=Digits; index++) {
+      numeral.push_front(value / power(Radix, Digits-1-index));
+      value = fmod(value, power(Radix, Digits-1-index)); } };
+  auto operator()() -> const LL { // decltype(numeral) { return numeral; }
+    LL sum{0};
+    for(u8 index{0}; index!=numeral.size(); index++) sum += numeral[index] * power(Radix, index);
+    return sum; }
+  auto operator+(LL value) -> decltype(*this) { operator()(operator()() + value); return *this; }
+  auto operator-(LL value) -> decltype(*this) { operator()(operator()() - value); return *this; }
+    #ifdef DEBUG
+  auto pr() -> void {
+    for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
+    #endif
+  auto size() -> const size_t { return Digits; } };
 struct Panel {
-  static constexpr size_t RADIX{10}, N_DIGITS{10};
-  Numeral<N_DIGITS> f, df;
-  Cursor<RADIX>     c;
-  Panel(u32 freq = bottom, u32 incr = 25*kHz) { f(freq); df(incr); }
+  static constexpr size_t RADIX{10};
+  Axis  axis{ FREQ };
+  Numeral<10,RADIX> f, df;
+  Numeral<4,RADIX> pnumr, pdnom, dp;
+  Numeral<1,4> a;
+  Panel( DBL freq = bottom, DBL dfreq = 25*kHz,
+    DBL numer = 1, DBL denom = MOD, DBL dnumer = 1, u8 ampl = 0) {
+      f(freq); df(dfreq); pnumr(numer); pdnom(denom); dp(dnumer); a(ampl); }
   auto operator()(Axis axis) -> void {  } };
 ;/* End Synthesis:: */ }
     /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
@@ -353,18 +362,23 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Panel panel;
   Resolver resolver;
-  pll(resolver(dBm::plus2,AMPL)).phAdj(OFF).set(resolver(0/360.,PHAS));
   // State trajectory versus frequency along a line: loci(f) = resolver(slope * f + bottom)
   auto top{ 100*MHz };
-  panel.f(bottom * 2);
+  panel.f(bottom * 2); panel.a(dBm::plus2);
+  pll(resolver(0/360.,PHAS)).phAdj(OFF);
+  panel.pnumr(pll().numr);
+  pll(resolver(panel.a(),AMPL));
+  HW::rf(ON);
  for(bool dir{ 1 }, once{ 0 }; ON; ) {
     pll(resolver( panel.f() )).flush().lock();
-    HW::rf(ON);
     #ifdef DEBUG
-      // pd("a:", rr(AMPL)); pd("p:", rr(PHAS),4); pd("f:", rr());
-      pr(panel.f()); pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
+      panel.f.pr();
+/*      pd("f:",panel.f()); pr("df:",panel.df());
+      pr("p:",panel.pnumr()); pr('/'); pr(panel.pdnom()); pr("dp:",panel.dp());
+      pr("a:",panel.a()); pr(' '); */
+      pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
       pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr); pr('\n');
     #endif
     do delay(1666); while(once);
     if(top <= panel.f()) { dir = 0; } else if(bottom > panel.f()) { dir = 1; }
-    panel.f(panel.f() + (dir ? 40 * panel.df() : -(30 * panel.df()) )); } } // kd9fww
+    panel.f(panel.f() + (dir ? 7 * panel.df() : -(9 * panel.df()) )); } } // kd9fww
