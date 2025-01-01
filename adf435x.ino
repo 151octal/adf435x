@@ -1,4 +1,4 @@
-/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~400 lines, ~13k mem).
+/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~400 lines, ~14k mem).
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
     https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
@@ -9,7 +9,7 @@
 #define DEBUG
 //  #undef DEBUG
 ; using DBL = double;
-  using LL = long long;
+  using i64 = long long;
   enum Enable { OFF = 0, ON = 1 };
     #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
@@ -40,7 +40,7 @@ namespace Hardware {
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
 } namespace HW = Hardware; namespace Synthesis {
  enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum  Axis { AMPL, FREQ, DF, PHAS, DP };
+  enum  Axis : size_t { AMPL, FREQ, DF, PHAS, DP };
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 }; 
@@ -55,10 +55,10 @@ namespace Hardware {
   constexpr auto  OVERLAYED_REGISTERS{ 6 };
   enum  PRSCL { four5ths = 0, eight9ths };
   enum  PDpolarity { negative = 0, positive };
-  auto  power(u8 radix, u8 exponent) -> const LL { // radix raised to exponent
-    LL rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
+  auto  power(u8 radix, u8 exponent) -> const i64 { // radix raised to exponent
+    i64 rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
  constexpr  u32   kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz };
-  constexpr auto  MAX_VCO{ 4400000000U };           // 4400 MHz.
+  constexpr auto  MAX_VCO{ 4400000000 };            // 4400 MHz.
   constexpr  u32  MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
   constexpr  u32  MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz.
   constexpr  u32  MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
@@ -216,9 +216,9 @@ class Resolver {
         auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
         loci.prop = (1 > proportion) ? 1 : proportion;
         return loci; }
-    auto omega() -> const LL {
-      return LL(pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
-    auto omega(LL freq) -> const decltype(loci) {
+    auto omega() -> const i64 {
+      return i64(pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
+    auto omega(i64 freq) -> const decltype(loci) {
       freq = constrain(freq, MIN_FREQ, MAX_FREQ);
       auto loChunk{ double(freq & ULONG_MAX) };
       if(ULONG_MAX < freq) loci.rdiv = 1;
@@ -229,38 +229,29 @@ class Resolver {
       loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
       loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
       return loci; }
-    /*  auto omega(DBL freq) -> const decltype(loci) {
-      freq = constrain(floor((0 > freq) ? -freq : freq), MIN_FREQ, MAX_FREQ);
-      loci.rdiv = u16( ceil( log2(MIN_VCO / freq) ) );
-      auto fractional_N{ freq / pfd * pow(2, loci.rdiv) };
-      loci.whol = u16( floor( fractional_N ) );
-      loci.whol = (22 < loci.whol) ? loci.whol : 22;
-      loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
-      loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
-      return loci;  }*/
   public:
   Resolver( const double& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
-  auto operator()(LL arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
+  auto operator()(i64 arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
     case AMPL:  return amplitude(static_cast<dBm>(arg));
     default:
     case FREQ:  return omega(arg);
     case PHAS:  return phi(double(arg)); } }
       // Resolver value dispatcher. Returns Axis selective value from State
-  const auto operator()(Axis axis = FREQ) -> const LL {
+  const auto operator()(Axis axis = FREQ) -> const i64 {
     switch (axis) {
-      case AMPL:  return static_cast<LL>(amplitude());
+      case AMPL:  return static_cast<i64>(amplitude());
       default:
       case FREQ:  return omega();
-      case PHAS:  return static_cast<LL>(phi()); } } };
+      case PHAS:  return static_cast<i64>(phi()); } } };
   template <size_t Digits>
-class Cursor {
+class Indexer {
   private:
     size_t index;
   public:
-  Cursor(const size_t& ix = 0)                      // Constrain() is a macro. So, beware.
+  Indexer(const size_t& ix = 0)                      // Constrain() is a macro. So, beware.
     : index{ constrain(ix, 0, Digits-1) } {}
-  virtual ~Cursor() {}
+  virtual ~Indexer() {}
   auto operator()() -> decltype(index) { return index; }
   auto operator()(u8 ix) -> decltype(index) { return index = constrain(ix, 0, Digits-1); }
   auto operator++() -> decltype(*this) { if(Digits-1 < ++index) index = 0; return *this; }
@@ -273,30 +264,30 @@ class Numeral {
   private:
     std::deque<u8,Digits> numeral;
   public:
-  Cursor<Digits> cursor;
-  Numeral(LL value = bottom) { operator()(value); }
+  Indexer<Digits> cursor;
+  Numeral(i64 value = bottom) { operator()(value); }
   virtual ~Numeral() {}
   auto operator[](const size_t& position) -> const u8 {
     return numeral[ constrain(position, 0, Digits-1) ]; } 
+  auto operator()() -> const i64 {
+    i64 sum{0};
+    for(u8 index{0}; index!=numeral.size(); index++) sum += numeral[index] * power(Radix, index);
+    return sum; }
   auto operator()(Direction d) -> void { switch(d) {
     default:  break;
-    case up:  { LL sum{ operator()() }; sum += power(Radix, cursor());
+    case up:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
                 operator()( constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
-    case dn:  { LL sum{ operator()() }; sum -= power(Radix, cursor());
+    case dn:  { i64 sum{ operator()() }; sum -= power(Radix, cursor());
                 operator()( constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
     case left: ++cursor; break;
     case rght: --cursor; break; } }
-  auto operator()(LL value) -> void {
+  auto operator()(i64 value) -> void {
     numeral.clear();
     for(u8 index{0}; index!=Digits; index++) {
       numeral.push_front(value / power(Radix, Digits-1-index));
       value = fmod(value, power(Radix, Digits-1-index)); } };
-  auto operator()() -> const LL {
-    LL sum{0};
-    for(u8 index{0}; index!=numeral.size(); index++) sum += numeral[index] * power(Radix, index);
-    return sum; }
-  auto operator+(LL value) -> decltype(*this) { operator()(operator()() + value); return *this; }
-  auto operator-(LL value) -> decltype(*this) { operator()(operator()() - value); return *this; }
+  auto operator+(i64 value) -> decltype(*this) { operator()(operator()() + value); return *this; }
+  auto operator-(i64 value) -> decltype(*this) { operator()(operator()() - value); return *this; }
     #ifdef DEBUG
   auto pr() -> void {
     for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
@@ -304,14 +295,30 @@ class Numeral {
   auto size() -> const size_t { return Digits; } };
 struct Panel {
   static constexpr size_t RADIX{10};
-  Axis  axis{ FREQ };
-  Numeral<10,RADIX> f, df;
-  Numeral<4,RADIX> pnumr, pdnom, dp;
-  Numeral<1,4> a;
-  Panel( LL freq = bottom, LL dfreq = 25*kHz,
-    DBL numer = 1, DBL denom = MOD, DBL dnumer = 1, u8 ampl = 0) {
-      f(freq); df(dfreq); pnumr(numer); pdnom(denom); dp(dnumer); a(ampl); }
-  auto operator()(Axis axis) -> void {  } };
+  Numeral<10,RADIX> f{bottom}, df{25*kHz};
+  Numeral<4,RADIX> pnumr{1}, pdnom{MOD}, dp{1};
+  Numeral<1> a{0};
+  auto operator()(Axis axis = FREQ) -> const i64 { switch(axis) {
+    case AMPL:  return i64(a());
+    default:
+    case FREQ:  return f();
+    case DF:    return df();
+    case PHAS:  return pnumr();
+    case DP:    return dp();  } }
+  auto operator()(const i64& value, Axis axis = FREQ) -> void { switch(axis) {
+    case AMPL:  a(dBm(value));  break;
+    default:
+    case FREQ:  f(value);       break;
+    case DF:    df(value);      break;
+    case PHAS:  pnumr(value);   break;
+    case DP:    dp(value);      break; } }
+  auto pr(Axis axis = FREQ) -> void { switch(axis) {
+    case AMPL:  a.pr();     break;
+    default:
+    case FREQ:  f.pr();     break;
+    case DF:    df.pr();    break;
+    case PHAS:  pnumr.pr(); break;
+    case DP:    dp.pr();    break; } } };
 ;/* End Synthesis:: */ }
     /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
@@ -377,14 +384,14 @@ auto loop() -> void { using namespace Synthesis;
   panel.f(bottom * 2); panel.a(dBm::plus2);
   pll(resolver(0/360.,PHAS)).phAdj(OFF);
   panel.pnumr(pll().numr);
-  pll(resolver(panel.a(),AMPL));
+  pll(resolver(panel(AMPL),AMPL));
   HW::rf(ON);
  for(bool dir{ 1 }, once{ 0 }; ON; ) {
-    pll(resolver( panel.f() )).flush().lock();
+    pll(resolver( panel() )).flush().lock();
     #ifdef DEBUG
-      panel.f.pr(); panel.df.pr();
-      panel.dp.pr(); panel.pnumr.pr(); pr('/'); panel.pdnom.pr();
-      panel.a.pr(); pr(' ');
+      panel.pr(); panel.pr(DF);
+      panel.pr(DP); panel.pr(PHAS); pr('/'); panel.pdnom.pr();
+      panel.pr(AMPL); pr(' ');
       pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
       pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr); pr('\n');
     #endif
