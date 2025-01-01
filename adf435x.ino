@@ -294,10 +294,10 @@ class Numeral {
     #endif
   auto size() -> const size_t { return Digits; } };
 struct Panel {
-  static constexpr size_t RADIX{10};
-  Numeral<10,RADIX> f{bottom}, df{25*kHz};
-  Numeral<4,RADIX> pnumr{1}, pdnom{MOD}, dp{1};
-  Numeral<1> a{0};
+  Numeral<10> f{bottom};
+  Numeral<10> df{25*kHz};
+  Numeral<4> pnumr{1}, pdnom{MOD}, dp{1};
+  Numeral<1,4> a{0};
   auto operator()(Axis axis = FREQ) -> const i64 { switch(axis) {
     case AMPL:  return i64(a());
     default:
@@ -381,10 +381,10 @@ auto loop() -> void { using namespace Synthesis;
   Resolver resolver;
   // State trajectory versus frequency along a line: loci(f) = resolver(slope * f + bottom)
   auto top{ 100*MHz };
-  panel.f(bottom * 2); panel.a(dBm::plus2);
-  pll(resolver(0/360.,PHAS)).phAdj(OFF);
-  panel.pnumr(pll().numr);
-  pll(resolver(panel(AMPL),AMPL));
+  panel(bottom * 2); panel(dBm::plus2,AMPL);
+  pll(resolver(0/360.,PHAS)).phAdj(OFF);            // cheap
+  panel.pnumr(pll().numr);                          // cute
+  pll(resolver(panel(AMPL),AMPL));                  // ugly
   HW::rf(ON);
  for(bool dir{ 1 }, once{ 0 }; ON; ) {
     pll(resolver( panel() )).flush().lock();
@@ -396,5 +396,5 @@ auto loop() -> void { using namespace Synthesis;
       pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr); pr('\n');
     #endif
     do delay(1666); while(once);
-    if(top <= panel.f()) { dir = 0; } else if(bottom > panel.f()) { dir = 1; }
-    panel.f(panel.f() + (dir ? 7 * panel.df() : -(9 * panel.df()) )); } } // kd9fww
+    if(top <= panel()) { dir = 0; } else if(bottom > panel()) { dir = 1; }
+    panel(panel() + (dir ? 7 * panel(DF) : -(9 * panel(DF)) )); } } // kd9fww
