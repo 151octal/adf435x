@@ -11,7 +11,7 @@
 ; using DBL = double;
   using i64 = long long;
   using u64 = unsigned long long;
-  using BIG = i64;  // choose your poison
+  using BIG = uint64_t;  // choose your poison
   enum Enable { OFF = 0, ON = 1 };
     #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
@@ -74,7 +74,7 @@ namespace Hardware {
  constexpr   u16  IOTA{ 500 };                      // IOTA such that the following are exact.
   constexpr auto  R_COUNT{ u16(OSC / IOTA / MOD) }; // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
- constexpr  auto  CORRECTION{ -148 };               // Determined by working in reverse, from
+ constexpr  auto  CORRECTION{ -150 };               // Determined by working in reverse, from
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, next line.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured reference oscillator frequency.
   constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
@@ -220,13 +220,11 @@ class Resolver {
         return loci; }
     auto omega() -> const BIG {
       return BIG(pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
-    auto omega(BIG freq) -> const decltype(loci) {
-      freq = constrain(freq, MIN_FREQ, MAX_FREQ);
-      auto loChunk{ double(freq & ULONG_MAX) };
-      if(ULONG_MAX < freq) loci.rdiv = 1;
-      else loci.rdiv = u16( ceil( log2(MIN_VCO / loChunk) ) );
-      auto fractional_N{ loChunk / pfd * pow(2, loci.rdiv) };
-      loci.whol = u16( floor( fractional_N ) );
+    auto omega(const BIG& arg) -> const decltype(loci) {
+      auto freq{ constrain(arg, MIN_FREQ, MAX_FREQ) };
+      loci.rdiv = u16( floor( log2(MAX_VCO/freq) ) );
+      auto fractional_N{ (freq / pfd) * pow(2, loci.rdiv) };
+      loci.whol = u16( trunc( fractional_N ) );
       loci.whol = (22 < loci.whol) ? loci.whol : 22;
       loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
       loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
@@ -389,7 +387,7 @@ auto loop() -> void { using namespace Synthesis;
   panel(pll().numr,PHAS);
   // State trajectory versus frequency along a line: loci(f) = resolver(slope * f + bottom)
   auto top{ 100*MHz };
-  //  panel( 4300*MHz, FREQ );
+  panel( 4300ULL*MHz, FREQ );
   panel( 12500,DF );
   HW::rf(ON);
  for(bool dir{ 1 }, once{ 0 }; ON; ) {
@@ -397,12 +395,12 @@ auto loop() -> void { using namespace Synthesis;
     #ifdef DEBUG
       panel.pr(); panel.pr(DF);
       panel.pr(DP); panel.pr(PHAS);
-      panel.pr(AMPL); //pr(' ');
-      //pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
-      //pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
+      panel.pr(AMPL); pr(' ');
+      pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
+      pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
       pr('\n');
     #endif
       //if(top <= panel(FREQ)) { dir = 0; } else if(bottom > panel(FREQ)) { dir = 1; }
       //panel(panel(FREQ) + (dir ? panel(DF) : -(panel(DF)) ),FREQ);
     panel(random(0,5250) * panel(DF) + bottom,FREQ);
-    do delay(2333); while(once); } } // kd9fww
+    do delay(1666); while(once); } } // kd9fww
