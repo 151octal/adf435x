@@ -9,11 +9,14 @@
   Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty;
   https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (shifter
   chip + bypass cap) assembly. The pinout is labeled. I acquired mine, and the Nano, for cheap
-  from the same aforementioned company.
+  from the same aforementioned company. Beware: ATMEGA186 version does NOT have the memory needed
+  to host an OLED display (~12k by itself). And, my 186 is SLOW. The 16MHz ATMEGA328 is adequate.
   ------------------------------------------------------------------------------------------------
   This code is a single pll version only. A second pll would be accommodated with {le, ld} on
   {D9, D8}, respectively. And sharing their {REF, 5v, clk, dat, pdr, GND} signals. With {3v3, mux}
   from one pll only. This scheme does not preclude the possibilty of supporting two plls See below
+  Be aware that there exist ADF435x modules that do not have the REF signal brought out on 
+  (what is a dummy) SMA connector. That is, the REF connector is not connected.
   ------------------------------------------------------------------------------------------------
   A mechanism for runtime frequency and phase control is provided.
   ------------------------------------------------------------------------------------------------

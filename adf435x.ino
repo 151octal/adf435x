@@ -8,19 +8,17 @@
   #include <SPI.h>
 #define DEBUG
 //  #undef DEBUG
-; using DBL = double;
-  using i64 = long long;
-  using u64 = unsigned long long;
-  using BIG = uint64_t;  // choose your poison
+; using u64 = unsigned long long;;
+  using DBL = double;
   enum Enable { OFF = 0, ON = 1 };
     #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
   void pr( const u8& uc ) { Serial.print(uc); }
   void pr( const char* const s ) { Serial.print(s); }
-  void pr( const double& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
+  void pr( const DBL& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
   void pr( const u16& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
   void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
-  void pd( const char* const s, const double& arg, int num = 0 ) { pr(s), pr(arg,num); }
+  void pd( const char* const s, const DBL& arg, int num = 0 ) { pr(s), pr(arg,num); }
   void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
  /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
       default: break; case 8: case 16: case 24: pr(' '); }            // in byte sized chunks,
@@ -50,17 +48,17 @@ namespace Hardware {
   constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
-  auto  log2(double arg) -> double { return log10(arg) / log10(2); };
+  auto  log2(const DBL& arg) -> DBL { return log10(arg) / log10(2); };
   enum  LockDetectFunction{ fracN = 0, intN };
   enum  MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
   enum  NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
   constexpr auto  OVERLAYED_REGISTERS{ 6 };
   enum  PRSCL { four5ths = 0, eight9ths };
   enum  PDpolarity { negative = 0, positive };
-  auto  power(u8 radix, u8 exponent) -> const BIG { // radix raised to exponent
-          BIG rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
- constexpr  u32   kHz{ 1000 }, MHz{ 1000*kHz }, bottom{ 34*MHz + 375*kHz };
-  constexpr BIG   MAX_VCO{ 4400000000 };            // 4400 MHz.
+  auto  power(u8 radix, u8 exponent) -> const u64 { // radix raised to exponent
+          u64 rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
+ constexpr  u64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz }, bottom{ 34*MHz + 375*kHz };
+  constexpr u64   MAX_VCO{ 4400000000 };            // 4400 MHz.
   constexpr  u32  MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
   constexpr  u32  MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz.
   constexpr  u32  MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
@@ -71,14 +69,14 @@ namespace Hardware {
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // Pick a modulus (not divisible by {2,3}).
   static_assert((4096>MOD) && (MOD%2) && (MOD%3));  // 12 bits with spur avoidance.
   constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
- constexpr   u16  IOTA{ 500 };                      // IOTA such that the following are exact.
+ constexpr   u16  IOTA{ 1000 };                     // IOTA such that the following are exact.
   constexpr auto  R_COUNT{ u16(OSC / IOTA / MOD) }; // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
- constexpr  auto  CORRECTION{ -150 };               // Determined by working in reverse, from
+ constexpr  auto  CORRECTION{ -165 };               // Determined by working in reverse, from
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, next line.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured reference oscillator frequency.
   constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
- constexpr  auto  PFD = double(REF) * (1+DBLR) / (1+TGLR) / R_COUNT;
+ constexpr  auto  PFD = DBL(REF) * (1+DBLR) / (1+TGLR) / R_COUNT;
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
   static_assert((MAX_PFD >= PFD));// && (PFD * R_COUNT == REF));
@@ -131,11 +129,11 @@ class SpecifiedOverlay {
     static const LayoutSpecification* const layoutSpec;
     State store{ INIT };
     struct Overlay {
-      static constexpr size_t N{ OVERLAYED_REGISTERS };
-      using RegArray = std::array<u32, N>; /*
+      static constexpr size_t NR{ OVERLAYED_REGISTERS };
+      using RegArray = std::array<u32, NR>; /*
         With the exception of r5 bits 19 and 20, all 'reserved' bits are to be set to zero. These
         regions become 'invariants' by not providing fields for them in the Specification. */
-    u8 durty; SPISettings settings;RegArray reg; };
+    u8 durty; SPISettings settings; RegArray reg; };
     using OVL = Overlay;
     OVL ovl{ 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), OVL::RegArray{ 0x180005,4,3,2,1,0} };
     auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
@@ -145,7 +143,7 @@ class SpecifiedOverlay {
       ovl.reg[pSpec->RANK] &= ( ~(        MASK[pSpec->WIDTH]   << pSpec->OFFSET) ); // First, off.
       ovl.reg[pSpec->RANK] |= (  (value & MASK[pSpec->WIDTH] ) << pSpec->OFFSET  ); // Then, on.
       static constexpr u8 WEIGHT[] = { 1, 2, 4, 8, 16, 32 };
-      ovl.durty |= WEIGHT[ (ovl.N - 1) - pSpec->RANK ]; // Encode which ovl.reg was dirty'd.
+      ovl.durty |= WEIGHT[ (ovl.NR - 1) - pSpec->RANK ]; // Encode which ovl.reg was dirty'd.
       return *this; }
   public:
   auto flush() -> decltype(*this) {
@@ -153,13 +151,13 @@ class SpecifiedOverlay {
     switch( ovl.durty ) { // Avoid the undirty'd. Well, almost.
       default:  break;                    /* Otherwise: say they're all dirty. */
       case  0:  return *this;;            /* None dirty. */
-      case  1:  cx = ovl.N - 1; break;    /* r0 ••• */
+      case  1:  cx = ovl.NR - 1; break;    /* r0 ••• */
       case  2:  /* fall thru */           /* r1 ••• */
-      case  3:  cx = ovl.N - 2; break;    /* r1 and r0 ••• */
-      case 16:  cx = ovl.N - 4; break;    /* r4 ••• */ }
+      case  3:  cx = ovl.NR - 2; break;    /* r1 and r0 ••• */
+      case 16:  cx = ovl.NR - 4; break;    /* r4 ••• */ }
     ovl.durty = 0;
     SPI.beginTransaction( ovl.settings );
-    for(/* empty */; ovl.N != cx; ++cx) HW::tx(le, &ovl.reg[cx], sizeof(ovl.reg[cx]) );
+    for(/* empty */; ovl.NR != cx; ++cx) HW::tx(le, &ovl.reg[cx], sizeof(ovl.reg[cx]) );
     SPI.endTransaction();
     return *this; }
   auto lock() -> void { HW::hardWait(ld); } // Wait on active ld pin, until lock is indicated.
@@ -205,47 +203,46 @@ class SpecifiedOverlay {
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
     /* ©2024 kd9fww */
 class Resolver {
+  // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
+  // Where: Amplitude <- |magnitude|, Frequency <- omega, and Phase <- phi, are all scalars.
   private:
-    // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
-    // Where: Amplitude <- |magnitude|, Frequency <- omega, and Phase <- phi, are all scalars.
-    State loci{ INIT };
-    DBL pfd; u16 spacing;
-    auto amplitude() -> const u8 { return loci.rpwr; }
-    auto amplitude(const dBm& a) -> const decltype(loci) { loci.rpwr = a; return loci; }
-    auto phi() -> const DBL { return (loci.prop / DBL(loci.dnom - 1)); }
-    auto phi(DBL normalized) -> const decltype(loci) {
-        normalized = constrain((0 > normalized) ? -normalized : normalized, 0, 1);
-        auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
-        loci.prop = (1 > proportion) ? 1 : proportion;
-        return loci; }
-    auto omega() -> const BIG {
-      return BIG(pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
-    auto omega(const BIG& arg) -> const decltype(loci) {
-      auto freq{ constrain(arg, MIN_FREQ, MAX_FREQ) };
-      loci.rdiv = u16( floor( log2(MAX_VCO/freq) ) );
-      auto fractional_N{ (freq / pfd) * pow(2, loci.rdiv) };
-      loci.whol = u16( trunc( fractional_N ) );
-      loci.whol = (22 < loci.whol) ? loci.whol : 22;
-      loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
-      loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
+  State loci{ INIT };
+  DBL pfd; u16 spacing;
+  auto amplitude() -> const u8 { return loci.rpwr; }
+  auto amplitude(const dBm& a) -> const decltype(loci) { loci.rpwr = a; return loci; }
+  auto phi() -> const DBL { return (loci.prop / DBL(loci.dnom - 1)); }
+  auto phi(DBL normalized) -> const decltype(loci) {
+      normalized = constrain((0 > normalized) ? -normalized : normalized, 0, 1);
+      auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
+      loci.prop = (1 > proportion) ? 1 : proportion;
       return loci; }
+  auto omega() -> const u64 {
+    return u64(pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
+  auto omega(const u64& bn) -> const decltype(loci) {
+    auto freq{ constrain(bn, MIN_FREQ, MAX_FREQ) };
+    loci.rdiv = u16( floor( log2(MAX_VCO/freq) ) );
+    auto fractional_N{ (freq / pfd) * pow(2, loci.rdiv) };
+    loci.whol = u16( trunc( fractional_N ) );
+    //loci.whol = (22 < loci.whol) ? loci.whol : 22;
+    loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
+    loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
+    return loci; }
   public:
-  Resolver( const double& actual_pfd = PFD, const u16& step = IOTA )
+  Resolver( const DBL& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
-  auto operator()(BIG arg, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
-    case AMPL:  return amplitude(static_cast<dBm>(arg));
+  auto operator()(const u64& bn, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
+    case AMPL:  return amplitude(static_cast<dBm>(bn));
     default:
-    case FREQ:  return omega(arg);
-    case PHAS:  return phi(double(arg)); } }
+    case FREQ:  return omega(bn);
+    case PHAS:  return phi(DBL(bn)); } }
       // Resolver value dispatcher. Returns Axis selective value from State
-  const auto operator()(Axis axis = FREQ) -> const BIG {
+  const auto operator()(Axis axis = FREQ) -> const u64 {
     switch (axis) {
-      case AMPL:  return static_cast<BIG>(amplitude());
+      case AMPL:  return static_cast<u64>(amplitude());
       default:
       case FREQ:  return omega();
-      case PHAS:  return static_cast<BIG>(phi()); } } };
-  template <size_t Digits>
-class Indexer {
+      case PHAS:  return static_cast<u64>(phi()); } }
+};  template <size_t Digits> class Indexer {
   private:
     size_t index;
   public:
@@ -257,44 +254,41 @@ class Indexer {
   auto operator++() -> decltype(*this) { if(Digits-1 < ++index) index = 0; return *this; }
   auto operator++(int) -> decltype(*this) { return operator++(); }
   auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
-  auto operator--(int) -> decltype(*this) { return operator--(); } };
-    //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
-  template <size_t Digits, size_t Radix = 10>
-class Numeral {
-  private:
+  auto operator--(int) -> decltype(*this) { return operator--(); }
+};  template <size_t Digits, size_t Radix = 10> class Numeral {
+  private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
   public:
   Indexer<Digits> cursor;
-  Numeral(BIG value = bottom) { operator()(value); }
+  Numeral(u64 bn = bottom) { operator()(bn); }
   virtual ~Numeral() {}
   auto operator[](const size_t& position) -> const u8 {
     return numrl[ constrain(position, 0, Digits-1) ]; } 
-  auto operator()() -> const BIG {
-    BIG sum{0};
+  auto operator()() -> const u64 {
+    u64 sum{0};
     for(u8 idx{0}; idx!=numrl.size(); idx++) sum += operator[](idx) * power(Radix, idx);
     return sum; }
-  auto operator()(Direction d) -> void { switch(d) {
+  auto operator()(const Direction& d) -> void { switch(d) {
     default:  break;
-    case up:  { BIG sum{ operator()() }; sum += power(Radix, cursor());
+    case up:  { u64 sum{ operator()() }; sum += power(Radix, cursor());
                 operator()( constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
-    case dn:  { BIG sum{ operator()() }; sum -= power(Radix, cursor());
+    case dn:  { u64 sum{ operator()() }; sum -= power(Radix, cursor());
                 operator()( constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
     case left: ++cursor; break;
     case rght: --cursor; break; } }
-  auto operator()(BIG value) -> void {
+  auto operator()(u64 bn) -> void {
     numrl.clear();
     for(u8 index{0}; index!=Digits; index++) {
-      numrl.push_front(value / power(Radix, Digits-1-index));
-        value %= power(Radix, Digits-1-index); } }
-      //  value = fmod(value, power(Radix, Digits-1-index));  } }
-  auto operator+(BIG value) -> decltype(*this) { operator()(operator()() + value); return *this; }
-  auto operator-(BIG value) -> decltype(*this) { operator()(operator()() - value); return *this; }
+      numrl.push_front(bn / power(Radix, Digits-1-index));
+        bn %= power(Radix, Digits-1-index); } }
+  auto operator+(const u64& bn) -> decltype(*this) { operator()(operator()() + bn); return *this; }
+  auto operator-(const u64& bn) -> decltype(*this) { operator()(operator()() - bn); return *this; }
     #ifdef DEBUG
   auto pr() -> void {
     for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
     #endif
-  auto size() -> const size_t { return Digits; } };
-struct Panel {
+  auto size() -> const size_t { return Digits; }
+};  struct Panel {
   Numeral<10> f{bottom}, df{25*kHz};
   Numeral<4>  pnumr{1}, dp{1};
   Numeral<1,4> a{0};
@@ -307,24 +301,24 @@ struct Panel {
     case PHAS:  pnumr.pr(); break;
     case DP:    dp.pr();    break; } }
       #endif
-  auto operator()(Axis axis = FREQ) -> const BIG { switch(axis) {
-    case AMPL:  return BIG(a());
+  auto operator()(Axis axis = FREQ) -> const u64 { switch(axis) {
+    case AMPL:  return u64(a());
     default:
     case FREQ:  return f();
     case DF:    return df();
     case PHAS:  return pnumr();
     case DP:    return dp();  } }
-  auto operator()(const BIG& value, Axis axis = FREQ) -> void { switch(axis) {
-    case AMPL:  a(dBm(value));  break;
+  auto operator()(const u64& bn, Axis axis = FREQ) -> void { switch(axis) {
+    case AMPL:  a(dBm(bn));  break;
     default:
-    case FREQ:  f(value);       break;
-    case DF:    df(value);      break;
-    case PHAS:  pnumr(value);   break;
-    case DP:    dp(value);      break; } } };
-;/* End Synthesis:: */ }
+    case FREQ:  f(bn);       break;
+    case DF:    df(bn);      break;
+    case PHAS:  pnumr(bn);   break;
+    case DP:    dp(bn);      break; } }
+};/* End Synthesis:: */ }
     /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
-auto setup() -> void { using namespace Hardware;    // "And, away we go ..." Gleason.
+auto setup() -> void { using namespace Hardware;    // "And, away we go." Gleason.
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
   rf( OFF );
   pinMode(static_cast<u8>(PIN::LE_A), OUTPUT);
@@ -375,7 +369,7 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::auxOutEnable, OFF );            // Pin not connected.                              (29)
   pll( S::muteTillLD, ON );                                                               // (30)
   pll( S::vcoPwrDown, OFF );                                                              // (31)
-  pll( S::bndSelClkDv, u8(ceil(double(PFD) / MIN_PFD)) );                                                   // (32)
+  pll( S::bndSelClkDv, u8(ceil(DBL(PFD) / MIN_PFD)) );                                                   // (32)
   pll( S::rfFBselect, !Feedback );  // EEK! Why the negation? Perhaps I've been daVinci'd.   (33)
   pll( S::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
   pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
@@ -387,17 +381,17 @@ auto loop() -> void { using namespace Synthesis;
   panel(pll().numr,PHAS);
   // State trajectory versus frequency along a line: loci(f) = resolver(slope * f + bottom)
   auto top{ 100*MHz };
-  panel( 4300ULL*MHz, FREQ );
+  // panel( 4*GHz + 400*MHz, FREQ ); // 4400 MHz is a thirty THREE bit (unsigned) number.
   panel( 12500,DF );
   HW::rf(ON);
- for(bool dir{ 1 }, once{ 0 }; ON; ) {
+ for(bool once{ 0 }; ON; ) {
     pll(resolver( panel(FREQ),FREQ) ).flush().lock();
     #ifdef DEBUG
       panel.pr(); panel.pr(DF);
       panel.pr(DP); panel.pr(PHAS);
-      panel.pr(AMPL); pr(' ');
+      panel.pr(AMPL); /*pr(' ');
       pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
-      pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
+      pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr); */
       pr('\n');
     #endif
       //if(top <= panel(FREQ)) { dir = 0; } else if(bottom > panel(FREQ)) { dir = 1; }
