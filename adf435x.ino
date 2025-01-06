@@ -2,14 +2,18 @@
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
     https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
+  #include <Adafruit_GFX.h>
   #include <Arduino.h>
   #include <ArxContainer.h>
-  #include <BasicEncoder.h>
+  //#include <BasicEncoder.h>
+  #include "OakOLED.h"
   #include <SPI.h>
+  #include <Wire.h>
 #define DEBUG
-//  #undef DEBUG
-; using u64 = unsigned long long;;
+  #undef DEBUG
+; using u64 = unsigned long long;
   using DBL = double;
+  using OLED = OakOLED;
   enum Enable { OFF = 0, ON = 1 };
     #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
@@ -43,7 +47,7 @@ namespace Hardware {
   enum  Axis : size_t { AMPL, FREQ, DF, PHAS, DP };
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
-  enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 }; 
+  enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
   enum  Direction : char { up, dn, left, rght };
   constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
@@ -72,7 +76,7 @@ namespace Hardware {
  constexpr   u16  IOTA{ 1000 };                     // IOTA such that the following are exact.
   constexpr auto  R_COUNT{ u16(OSC / IOTA / MOD) }; // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
- constexpr  auto  CORRECTION{ -165 };               // Determined by working in reverse, from
+ constexpr  auto  CORRECTION{ -420 };               // Determined by working in reverse, from
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, next line.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured reference oscillator frequency.
   constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
@@ -241,8 +245,9 @@ class Resolver {
       case AMPL:  return static_cast<u64>(amplitude());
       default:
       case FREQ:  return omega();
-      case PHAS:  return static_cast<u64>(phi()); } }
-};  template <size_t Digits> class Indexer {
+      case PHAS:  return static_cast<u64>(phi()); } } };
+  template <size_t Digits>
+class Indexer {
   private:
     size_t index;
   public:
@@ -254,8 +259,9 @@ class Resolver {
   auto operator++() -> decltype(*this) { if(Digits-1 < ++index) index = 0; return *this; }
   auto operator++(int) -> decltype(*this) { return operator++(); }
   auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
-  auto operator--(int) -> decltype(*this) { return operator--(); }
-};  template <size_t Digits, size_t Radix = 10> class Numeral {
+  auto operator--(int) -> decltype(*this) { return operator--(); } };
+  template <size_t Digits, size_t Radix = 10>
+class Numeral {
   private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
   public:
@@ -287,8 +293,11 @@ class Resolver {
   auto pr() -> void {
     for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
     #endif
-  auto size() -> const size_t { return Digits; }
-};  struct Panel {
+  auto size() -> const size_t { return numrl.size(); }
+  auto disp( OLED& oled, int x, int y) -> void {
+    oled.setCursor(x,y);
+    for(size_t ix{}; size() != ix; ix++) oled.print( operator[](size() - 1 - ix) ); } };
+struct Panel {
   Numeral<10> f{bottom}, df{25*kHz};
   Numeral<4>  pnumr{1}, dp{1};
   Numeral<1,4> a{0};
@@ -314,7 +323,7 @@ class Resolver {
     case FREQ:  f(bn);       break;
     case DF:    df(bn);      break;
     case PHAS:  pnumr(bn);   break;
-    case DP:    dp(bn);      break; } }
+    case DP:    dp(bn);      break; } } 
 };/* End Synthesis:: */ }
     /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
@@ -375,6 +384,7 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Panel panel;
   Resolver resolver;
+  OLED oled;  oled.begin();  oled.setTextSize(2);
   panel(plus2,AMPL);
   pll(resolver(panel(AMPL),AMPL));
   pll.phAdj(OFF).set(resolver(0/360.,PHAS));
@@ -385,7 +395,17 @@ auto loop() -> void { using namespace Synthesis;
   panel( 12500,DF );
   HW::rf(ON);
  for(bool once{ 0 }; ON; ) {
-    pll(resolver( panel(FREQ),FREQ) ).flush().lock();
+    pll( resolver(panel()) ).flush().lock();
+    oled.clearDisplay();
+    panel.df.disp(oled, 0, 0);
+    oled.setTextSize(2);
+    panel.f.disp(oled, 0, 10);
+    oled.setTextSize(1);
+    oled.setCursor(0, 30);
+    oled.print("rpwr:");    oled.print(pll().rpwr);  oled.print(" rdiv:");   oled.print(pll().rdiv);
+    oled.print("\ndnom:");  oled.print(pll().dnom);  oled.print(" prop:");   oled.print(pll().prop);
+    oled.print("\nwhol:");  oled.print(pll().whol);  oled.print(" numr:");   oled.print(pll().numr);
+    oled.display();
     #ifdef DEBUG
       panel.pr(); panel.pr(DF);
       panel.pr(DP); panel.pr(PHAS);
@@ -394,7 +414,5 @@ auto loop() -> void { using namespace Synthesis;
       pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr); */
       pr('\n');
     #endif
-      //if(top <= panel(FREQ)) { dir = 0; } else if(bottom > panel(FREQ)) { dir = 1; }
-      //panel(panel(FREQ) + (dir ? panel(DF) : -(panel(DF)) ),FREQ);
-    panel(random(0,5250) * panel(DF) + bottom,FREQ);
+    panel( random(0,5250) * panel(DF) + bottom ); // y = mx + b
     do delay(1666); while(once); } } // kd9fww
