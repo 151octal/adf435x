@@ -1,11 +1,11 @@
-/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~400 lines, ~14k mem).
+/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~450 lines, ~20k mem).
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
     https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
   #include <Adafruit_GFX.h>
   #include <Arduino.h>
   #include <ArxContainer.h>
-  //#include <BasicEncoder.h>
+  #include <BasicEncoder.h>
   #include "OakOLED.h"
   #include <SPI.h>
   #include <Wire.h>
@@ -80,7 +80,7 @@ namespace Hardware {
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, next line.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured reference oscillator frequency.
   constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
- constexpr  auto  PFD = DBL(REF) * (1+DBLR) / (1+TGLR) / R_COUNT;
+ constexpr  auto  PFD{ DBL(REF) * (1+DBLR) / (1+TGLR) / R_COUNT };
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
   static_assert((MAX_PFD >= PFD));// && (PFD * R_COUNT == REF));
@@ -100,7 +100,7 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     rfDivSelect,  rfFBselect,   ledMode,
     _end
   };  using S = Symbol;
-constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] = {  /*
+constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] {  /*
   Human deduced via inspection.
     OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
     RANK:                 RANK = OVERLAYED_REGISTERS - 1 - Datasheet Register Number.
@@ -325,6 +325,20 @@ struct Panel {
     case PHAS:  pnumr(bn);   break;
     case DP:    dp(bn);      break; } } 
 };/* End Synthesis:: */ }
+BasicEncoder encoder(2, 3, HIGH);
+void pciSetup(byte pin) {
+  *digitalPinToPCMSK(pin) |= bit(digitalPinToPCMSKbit(pin));  // enable pin
+  PCIFR |= bit(digitalPinToPCICRbit(pin));                    // clear outstanding interrupt
+  PCICR |= bit(digitalPinToPCICRbit(pin)); }
+void setup_encoders(int a, int b) {
+  uint8_t old_sreg = SREG;
+  cli();
+  pciSetup(a);
+  pciSetup(b);
+  //encoder.reset();
+  SREG = old_sreg; }
+ISR(PCINT2_vect) {
+  encoder.service(); }
     /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void { using namespace Hardware;    // "And, away we go." Gleason.
@@ -337,13 +351,15 @@ auto setup() -> void { using namespace Hardware;    // "And, away we go." Gleaso
   // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
   // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
   digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
-  SPI.begin(); }
+  SPI.begin();
+  setup_encoders(2,3);
+  encoder.set_reverse(); }
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { using namespace Synthesis;
 ; SpecifiedOverlay pll;
-  #ifdef DEBUG
+    #ifdef DEBUG
   Serial.begin(1000000L); delay(1000L);
-  #endif // Quantiy S::_end calls of set() are required, in any order.
+    #endif // Quantiy S::_end calls of set() are required, in any order.
   //                     S::fraction, S::integer, S::modulus S::rfDivSelect      (1) (2) (3) (36)
   pll( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
   pll( S::phAdj, OFF );                                                                    // (5)
@@ -361,7 +377,7 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::refDoubler, DBLR );                                                             // (17)
   pll( S::muxOut, MuxOut::HiZ );          // see 'cheat sheet'                               (18)
   pll( S::LnLsModes, lowNoise );                                                          // (19)
-  constexpr auto CLKDIV32 = 150;          // I don't understand this, YET.
+  constexpr auto CLKDIV32{ 150 };          // I don't understand this, YET.
   //= round( PFD / MOD * 400e-6 ); // from datasheets'
   // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
@@ -378,7 +394,7 @@ auto loop() -> void { using namespace Synthesis;
   pll( S::auxOutEnable, OFF );            // Pin not connected.                              (29)
   pll( S::muteTillLD, ON );                                                               // (30)
   pll( S::vcoPwrDown, OFF );                                                              // (31)
-  pll( S::bndSelClkDv, u8(ceil(DBL(PFD) / MIN_PFD)) );                                                   // (32)
+  pll( S::bndSelClkDv, u8(ceil(DBL(PFD) / MIN_PFD)) );                                    // (32)
   pll( S::rfFBselect, !Feedback );  // EEK! Why the negation? Perhaps I've been daVinci'd.   (33)
   pll( S::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
   pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
@@ -391,22 +407,20 @@ auto loop() -> void { using namespace Synthesis;
   panel(pll().numr,PHAS);
   // State trajectory versus frequency along a line: loci(f) = resolver(slope * f + bottom)
   auto top{ 100*MHz };
-  // panel( 4*GHz + 400*MHz, FREQ ); // 4400 MHz is a thirty THREE bit (unsigned) number.
+  // panel( 4*GHz + 400*MHz, FREQ ); // 4400 MHz requires at least thirty THREE bits.
   panel( 12500,DF );
   HW::rf(ON);
  for(bool once{ 0 }; ON; ) {
     pll( resolver(panel()) ).flush().lock();
-    oled.clearDisplay();
-    panel.df.disp(oled, 0, 0);
-    oled.setTextSize(2);
-    panel.f.disp(oled, 0, 10);
-    oled.setTextSize(1);
-    oled.setCursor(0, 30);
-    oled.print("rpwr:");    oled.print(pll().rpwr);  oled.print(" rdiv:");   oled.print(pll().rdiv);
-    oled.print("\ndnom:");  oled.print(pll().dnom);  oled.print(" prop:");   oled.print(pll().prop);
-    oled.print("\nwhol:");  oled.print(pll().whol);  oled.print(" numr:");   oled.print(pll().numr);
+      oled.clearDisplay();   panel.df.disp(oled, 0, 0);
+      oled.setTextSize(2);   panel.f.disp(oled, 0, 12);
+      oled.setTextSize(1);   oled.setCursor(0, 30);
+      oled.print("rpwr:");   oled.print(pll().rpwr); oled.print(" rdiv:"); oled.print(pll().rdiv);
+      oled.print("\ndnom:"); oled.print(pll().dnom); oled.print(" prop:"); oled.print(pll().prop);
+      oled.print("\nwhol:"); oled.print(pll().whol); oled.print(" numr:"); oled.print(pll().numr);
     oled.display();
     #ifdef DEBUG
+      if (encoder.get_change()) Serial.print(encoder.get_count()); pr(' ');
       panel.pr(); panel.pr(DF);
       panel.pr(DP); panel.pr(PHAS);
       panel.pr(AMPL); /*pr(' ');
