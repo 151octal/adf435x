@@ -1,6 +1,6 @@
 /*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~450 lines, ~20k mem).
-    https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
-    https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
+    https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source code.
+    https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
   #include <Adafruit_GFX.h>
   #include <Arduino.h>
@@ -10,7 +10,7 @@
   #include <SPI.h>
   #include <Wire.h>
 #define DEBUG
-  #undef DEBUG
+#undef DEBUG
 ; using u64 = unsigned long long;
   using DBL = double;
   using OLED = OakOLED;
@@ -30,7 +30,8 @@
       #endif
 namespace Hardware {
   // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
-  enum PIN : u8 { eJ = 2, eK = 3, MUX = 4, PDR = 6, LD_A = 7, LE_A = 10 };
+  enum PIN : u8 { J_A =  2, K_A =  3, MUX =  4, PDR =  6, LD_A = 7, LE_A = 10,
+                  B_A = 14, B_B = 15, J_B = 16, K_B = 17 };
   enum UNIT { A, /* B, */ _end };
   constexpr struct CTRL { PIN le, ld; } ctrl[] = { [A] = { LE_A, LD_A } };/*
     , [B] = { LE_B, LD_B } };*/
@@ -84,7 +85,7 @@ namespace Hardware {
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
   static_assert((MAX_PFD >= PFD));// && (PFD * R_COUNT == REF));
-enum Symbol : u8 {  // Human readable register 'field' identifiers.
+enum Identifier : u8 {  // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
     phase,        prescaler,    phAdj,
@@ -99,7 +100,7 @@ enum Symbol : u8 {  // Human readable register 'field' identifiers.
     muteTillLD,   vcoPwrDown,   bndSelClkDv,
     rfDivSelect,  rfFBselect,   ledMode,
     _end
-  };  using S = Symbol;
+  };  using I = Identifier;
 constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] {  /*
   Human deduced via inspection.
     OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
@@ -110,19 +111,19 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
     OFFSET:               Zero based position of the field's least significant bit.
     WIDTH:                Correct. The number of bits in a field (and is at least one).
                           •You get a gold star• */
-  [S::fraction] = {5, 3, 12},     [S::integer] = {5, 15, 16},     [S::modulus] = {4, 3, 12},
-  [S::phase] = {4, 15, 12},       [S::prescaler] = {4, 27, 1},    [S::phAdj] = {4, 28, 1},
-  [S::counterReset] = {3, 3, 1},  [S::cp3state] = {3, 4, 1},      [S::idle] = {3, 5, 1},
-  [S::pdPolarity] = {3, 6, 1},    [S::ldp] = {3, 7, 1},           [S::ldf] = {3, 8, 1},
-  [S::cpIndex] = {3, 9, 4},       [S::dblBfr] = {3, 13, 1},       [S::rCounter] = {3, 14, 10},
-  [S::refToggler] = {3, 24, 1},   [S::refDoubler] = {3, 25, 1},   [S::muxOut] = {3, 26, 3},
-  [S::LnLsModes] = {3, 29, 2},    [S::clkDivider] = {2, 3, 12},   [S::clkDivMode] = {2, 15, 2},
-  [S::csr] = {2, 18, 1},          [S::chrgCancel] = {2, 21, 1},   [S::abp] = {2, 22, 1},
-  [S::bscMode] = {2, 23, 1},      [S::rfOutPwr] = {1, 3, 2},      [S::rfSoftEnable] = {1, 5, 1},
-  [S::auxOutPwr] = {1, 6, 2},     [S::auxOutEnable] = {1, 8, 1},  [S::auxFBselect] = {1, 9, 1},
-  [S::muteTillLD] = {1, 10, 1},   [S::vcoPwrDown] = {1, 11, 1},   [S::bndSelClkDv] = {1, 12, 8},
-  [S::rfDivSelect] = {1, 20, 3},  [S::rfFBselect] = {1, 23, 1},   [S::ledMode] = {0, 22, 2} };
-  static_assert(Symbol::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
+  [I::fraction] = {5, 3, 12},     [I::integer] = {5, 15, 16},     [I::modulus] = {4, 3, 12},
+  [I::phase] = {4, 15, 12},       [I::prescaler] = {4, 27, 1},    [I::phAdj] = {4, 28, 1},
+  [I::counterReset] = {3, 3, 1},  [I::cp3state] = {3, 4, 1},      [I::idle] = {3, 5, 1},
+  [I::pdPolarity] = {3, 6, 1},    [I::ldp] = {3, 7, 1},           [I::ldf] = {3, 8, 1},
+  [I::cpIndex] = {3, 9, 4},       [I::dblBfr] = {3, 13, 1},       [I::rCounter] = {3, 14, 10},
+  [I::refToggler] = {3, 24, 1},   [I::refDoubler] = {3, 25, 1},   [I::muxOut] = {3, 26, 3},
+  [I::LnLsModes] = {3, 29, 2},    [I::clkDivider] = {2, 3, 12},   [I::clkDivMode] = {2, 15, 2},
+  [I::csr] = {2, 18, 1},          [I::chrgCancel] = {2, 21, 1},   [I::abp] = {2, 22, 1},
+  [I::bscMode] = {2, 23, 1},      [I::rfOutPwr] = {1, 3, 2},      [I::rfSoftEnable] = {1, 5, 1},
+  [I::auxOutPwr] = {1, 6, 2},     [I::auxOutEnable] = {1, 8, 1},  [I::auxFBselect] = {1, 9, 1},
+  [I::muteTillLD] = {1, 10, 1},   [I::vcoPwrDown] = {1, 11, 1},   [I::bndSelClkDv] = {1, 12, 8},
+  [I::rfDivSelect] = {1, 20, 3},  [I::rfFBselect] = {1, 23, 1},   [I::ledMode] = {0, 22, 2} };
+  static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
   constexpr State INIT{ 0, 0, 0, 0, 1, dBm::minus4 };
   /* ©2024 kd9fww */
@@ -136,11 +137,11 @@ class SpecifiedOverlay {
       static constexpr size_t NR{ OVERLAYED_REGISTERS };
       using RegArray = std::array<u32, NR>; /*
         With the exception of r5 bits 19 and 20, all 'reserved' bits are to be set to zero. These
-        regions become 'invariants' by not providing fields for them in the Specification. */
+        regions become invariants by not providing identifiers for them in the Specification. */
     u8 durty; SPISettings settings; RegArray reg; };
     using OVL = Overlay;
     OVL ovl{ 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), OVL::RegArray{ 0x180005,4,3,2,1,0} };
-    auto raw( const S& symbol,const u16& value ) -> decltype(*this) {
+    auto raw( const I& symbol,const u16& value ) -> decltype(*this) {
       static constexpr u32 MASK[] = {
         0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
       auto pSpec = &layoutSpec[ static_cast<const u8>( symbol ) ];
@@ -170,38 +171,38 @@ class SpecifiedOverlay {
   auto operator()( const HW::CTRL& io ) -> decltype(operator()(io.le, io.ld)) {
     return operator()(io.le, io.ld); }
     // Parameter Storage Intercept
-  auto operator()( const S& sym,const u16& val ) -> decltype(*this) { switch(sym) {
+  auto operator()( const I& sym,const u16& val ) -> decltype(*this) { switch(sym) {
     default:                return raw( sym,val );  // Beware of { case: fall thru }
-    case S::fraction:     if(val !=  store.numr) {
+    case I::fraction:     if(val !=  store.numr) {
                             return raw( sym,store.numr  = val ); }
                       else  return raw( sym,val );
-    case S::integer:      if(val !=  store.whol) {
-      raw( S::prescaler,(75 < val) ? PRSCL::eight9ths : PRSCL::four5ths );
+    case I::integer:      if(val !=  store.whol) {
+      raw( I::prescaler,(75 < val) ? PRSCL::eight9ths : PRSCL::four5ths );
                             return raw( sym,store.whol = val ); }
                       else  return raw( sym,val );
-    case S::phase:        if(val !=  store.prop) {
+    case I::phase:        if(val !=  store.prop) {
                             return raw( sym,store.prop  = val ); }
                       else  return raw( sym,val );
-    case S::modulus:      if(val !=  store.dnom) {
-      raw( S::LnLsModes,nsMode = (lowSpur == nsMode) ? ((50 > val) ? lowNoise : nsMode) : nsMode);
+    case I::modulus:      if(val !=  store.dnom) {
+      raw( I::LnLsModes,nsMode = (lowSpur == nsMode) ? ((50 > val) ? lowNoise : nsMode) : nsMode);
                             return raw( sym,store.dnom = val ); }
                       else  return raw( sym,val );
-    case S::rfDivSelect:  if(val !=  store.rdiv) {
+    case I::rfDivSelect:  if(val !=  store.rdiv) {
                             return raw( sym,store.rdiv  = val ); }
                       else  return raw( sym,val );
-    case S::rfOutPwr:     if(static_cast<dBm>(val) != store.rpwr) { 
-                            raw( S::rfSoftEnable, ON );
+    case I::rfOutPwr:     if(static_cast<dBm>(val) != store.rpwr) { 
+                            raw( I::rfSoftEnable, ON );
                             return raw( sym,store.rpwr = static_cast<dBm>(val) ); }
                       else  return raw( sym,val );                                } }
       // Parameter dispatcher
   auto operator()( const State& loci ) -> decltype(*this) {
-    set( S::fraction,loci.numr ).set( S::integer,loci.whol ).set( S::modulus,loci.dnom );
-    set( S::phase,loci.prop ).set( S::rfDivSelect,loci.rdiv ).set( S::rfOutPwr,loci.rpwr );
+    set( I::fraction,loci.numr ).set( I::integer,loci.whol ).set( I::modulus,loci.dnom );
+    set( I::phase,loci.prop ).set( I::rfDivSelect,loci.rdiv ).set( I::rfOutPwr,loci.rpwr );
     return *this;  }
   auto operator()() -> const decltype(store) { return store; }
-  auto phAdj( const bool& e ) -> decltype(*this) { raw( S::phAdj,e ); return *this; }
+  auto phAdj( const bool& e ) -> decltype(*this) { raw( I::phAdj,e ); return *this; }
     // Wrapper for operator()( sym,val )
-  auto set( const S& sym,const u16& val ) -> decltype(*this) { return operator()( sym,val ); }
+  auto set( const I& sym,const u16& val ) -> decltype(*this) { return operator()( sym,val ); }
     // Wrapper for opertor()( loci )
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
@@ -324,8 +325,8 @@ struct Panel {
     case DF:    df(bn);      break;
     case PHAS:  pnumr(bn);   break;
     case DP:    dp(bn);      break; } } 
-};/* End Synthesis:: */ }
-BasicEncoder encoder(2, 3, HIGH);
+};/* End Synthesis:: */ }/*
+BasicEncoder encoder(2, 3,HIGH);
 void pciSetup(byte pin) {
   *digitalPinToPCMSK(pin) |= bit(digitalPinToPCMSKbit(pin));  // enable pin
   PCIFR |= bit(digitalPinToPCICRbit(pin));                    // clear outstanding interrupt
@@ -338,7 +339,7 @@ void setup_encoders(int a, int b) {
   //encoder.reset();
   SREG = old_sreg; }
 ISR(PCINT2_vect) {
-  encoder.service(); }
+  encoder.service(); }*/
     /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto setup() -> void { using namespace Hardware;    // "And, away we go." Gleason.
@@ -350,54 +351,60 @@ auto setup() -> void { using namespace Hardware;    // "And, away we go." Gleaso
   // pinMode(static_cast<u8>(PIN::LE_B), OUTPUT);
   // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
   // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
-  digitalWrite(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
+  pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
+  pinMode(static_cast<u8>(PIN::B_A), INPUT_PULLUP);
+  pinMode(static_cast<u8>(PIN::J_A), INPUT_PULLUP);
+  pinMode(static_cast<u8>(PIN::K_A), INPUT_PULLUP);
+  pinMode(static_cast<u8>(PIN::B_B), INPUT_PULLUP);
+  pinMode(static_cast<u8>(PIN::J_B), INPUT_PULLUP);
+  pinMode(static_cast<u8>(PIN::K_B), INPUT_PULLUP);
   SPI.begin();
-  setup_encoders(2,3);
-  encoder.set_reverse(); }
+  /*setup_encoders(2,3);
+  encoder.set_reverse(); */}
     // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 auto loop() -> void { using namespace Synthesis;
 ; SpecifiedOverlay pll;
     #ifdef DEBUG
   Serial.begin(1000000L); delay(1000L);
-    #endif // Quantiy S::_end calls of set() are required, in any order.
-  //                     S::fraction, S::integer, S::modulus S::rfDivSelect      (1) (2) (3) (36)
-  pll( S::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
-  pll( S::phAdj, OFF );                                                                    // (5)
-  pll( S::prescaler,PRSCL::eight9ths );  // Possiblly redundant                            // (6)
-  pll( S::counterReset, OFF );                                                             // (7)
-  pll( S::cp3state, OFF );                                                                 // (8)
-  pll( S::idle, OFF );                                                                     // (9)
-  pll( S::pdPolarity, PDpolarity::positive );                                             // (10)
-  pll( S::ldp, LDPnS::ten );                                                              // (11)
-  pll( S::ldf, LockDetectFunction::fracN );                                               // (12)
-  pll( S::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.           (13)
-  pll( S::dblBfr, ON );                                                                   // (14)
-  pll( S::rCounter, R_COUNT );                                                            // (15)
-  pll( S::refToggler, TGLR );                                                             // (16)
-  pll( S::refDoubler, DBLR );                                                             // (17)
-  pll( S::muxOut, MuxOut::HiZ );          // see 'cheat sheet'                               (18)
-  pll( S::LnLsModes, lowNoise );                                                          // (19)
+    #endif // Quantiy I::_end calls of set() are required, in any order.
+  //                     I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
+  pll( I::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
+  pll( I::phAdj, OFF );                                                                    // (5)
+  pll( I::prescaler,PRSCL::eight9ths );  // Possiblly redundant                            // (6)
+  pll( I::counterReset, OFF );                                                             // (7)
+  pll( I::cp3state, OFF );                                                                 // (8)
+  pll( I::idle, OFF );                                                                     // (9)
+  pll( I::pdPolarity, PDpolarity::positive );                                             // (10)
+  pll( I::ldp, LDPnS::ten );                                                              // (11)
+  pll( I::ldf, LockDetectFunction::fracN );                                               // (12)
+  pll( I::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.           (13)
+  pll( I::dblBfr, ON );                                                                   // (14)
+  pll( I::rCounter, R_COUNT );                                                            // (15)
+  pll( I::refToggler, TGLR );                                                             // (16)
+  pll( I::refDoubler, DBLR );                                                             // (17)
+  pll( I::muxOut, MuxOut::HiZ );          // see 'cheat sheet'                               (18)
+  pll( I::LnLsModes, lowNoise );                                                          // (19)
   constexpr auto CLKDIV32{ 150 };          // I don't understand this, YET.
   //= round( PFD / MOD * 400e-6 ); // from datasheets'
   // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
   static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
-  pll( S::clkDivider, CLKDIV );                                                           // (20)
-  pll( S::clkDivMode, ClockingMode::dividerOff );                                         // (21)
-  pll( S::csr, ON );                      // Cycle Slip reduction                            (22)
-  pll( S::chrgCancel, OFF );                                                              // (23)
-  pll( S::abp, ABPnS::nS6fracN );                                                         // (24)
-  pll( S::bscMode,(MIN_PFD < PFD) ? BSCmd::programmed : BSCmd::automatic );               // (25)
-  pll( S::rfOutPwr, minus4 );             // Possiblly redundant                          // (26)
-  pll( S::rfSoftEnable, ON );                                                             // (27)
-  pll( S::auxOutPwr, minus4 );                                                            // (28)
-  pll( S::auxOutEnable, OFF );            // Pin not connected.                              (29)
-  pll( S::muteTillLD, ON );                                                               // (30)
-  pll( S::vcoPwrDown, OFF );                                                              // (31)
-  pll( S::bndSelClkDv, u8(ceil(DBL(PFD) / MIN_PFD)) );                                    // (32)
-  pll( S::rfFBselect, !Feedback );  // EEK! Why the negation? Perhaps I've been daVinci'd.   (33)
-  pll( S::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
-  pll( S::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
+  pll( I::clkDivider, CLKDIV );                                                           // (20)
+  pll( I::clkDivMode, ClockingMode::dividerOff );                                         // (21)
+  pll( I::csr, ON );                      // Cycle Slip reduction                            (22)
+  pll( I::chrgCancel, OFF );                                                              // (23)
+  pll( I::abp, ABPnS::nS6fracN );                                                         // (24)
+  pll( I::bscMode,(MIN_PFD < PFD) ? BSCmd::programmed : BSCmd::automatic );               // (25)
+  pll( I::rfOutPwr, minus4 );             // Possiblly redundant                          // (26)
+  pll( I::rfSoftEnable, ON );                                                             // (27)
+  pll( I::auxOutPwr, minus4 );                                                            // (28)
+  pll( I::auxOutEnable, OFF );            // Pin not connected.                              (29)
+  pll( I::muteTillLD, ON );                                                               // (30)
+  pll( I::vcoPwrDown, OFF );                                                              // (31)
+  pll( I::bndSelClkDv, u8(ceil(DBL(PFD) / MIN_PFD)) );                                    // (32)
+  pll( I::rfFBselect, !Feedback );  // EEK! Why the negation? Perhaps I've been daVinci'd.   (33)
+  pll( I::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
+  pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Panel panel;
   Resolver resolver;
   OLED oled;  oled.begin();  oled.setTextSize(2);
@@ -410,6 +417,7 @@ auto loop() -> void { using namespace Synthesis;
   // panel( 4*GHz + 400*MHz, FREQ ); // 4400 MHz requires at least thirty THREE bits.
   panel( 12500,DF );
   HW::rf(ON);
+  auto iteration{ 0UL };
  for(bool once{ 0 }; ON; ) {
     pll( resolver(panel()) ).flush().lock();
       oled.clearDisplay();   panel.df.disp(oled, 0, 0);
@@ -418,9 +426,10 @@ auto loop() -> void { using namespace Synthesis;
       oled.print("rpwr:");   oled.print(pll().rpwr); oled.print(" rdiv:"); oled.print(pll().rdiv);
       oled.print("\ndnom:"); oled.print(pll().dnom); oled.print(" prop:"); oled.print(pll().prop);
       oled.print("\nwhol:"); oled.print(pll().whol); oled.print(" numr:"); oled.print(pll().numr);
+      oled.print("\niter:"); oled.print(++iteration);
     oled.display();
     #ifdef DEBUG
-      if (encoder.get_change()) Serial.print(encoder.get_count()); pr(' ');
+      //if (encoder.get_change()) Serial.print(encoder.get_count()); pr(' ');
       panel.pr(); panel.pr(DF);
       panel.pr(DP); panel.pr(PHAS);
       panel.pr(AMPL); /*pr(' ');

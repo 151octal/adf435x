@@ -9,8 +9,8 @@
   Bi-directional level shifter module assy., P/N: TXS0108E hereafter referred to as: Shfty;
   https://www.ti.com/lit/ds/symlink/txs0108e.pdf  No documentation is available for the (shifter
   chip + bypass cap) assembly. The pinout is labeled. I acquired mine, and the Nano, for cheap
-  from the same aforementioned company. Beware: ATMEGA186 version does NOT have the memory needed
-  to host an OLED display (~12k by itself). And, my 186 is SLOW. The 16MHz ATMEGA328 is adequate.
+  from the same aforementioned company. Beware: ATMEGA168 version does NOT have the memory needed
+  to host an OLED display (~12k by itself). And, my 168 is SLOW. The 16MHz ATMEGA328 is adequate.
   ------------------------------------------------------------------------------------------------
   This code is a single pll version only. A second pll would be accommodated with {le, ld} on
   {D9, D8}, respectively. And sharing their {REF, 5v, clk, dat, pdr, GND} signals. With {3v3, mux}
@@ -33,7 +33,9 @@
     a.x: Shfty 3V logic pins                        --> (nominals) 5.1 = v.b & 3.3 = v.a <--
   Nano                                 Shfty                 pll module
   30 pins                             18 pins                 9 wires. Denoted (A) thru (I)
-  ---              -/-                  ---         -/-      --- ________________________________
+  ---              -/-                  ---         -/-      ---
+  h.30:(system.pwr.supply---VIN: Nano.reg5 input)
+  h.29:(system.pwr.return---GND: Nano.reg5 return)               ________________________________
   //         (single point)-ground-w-GND-w---------------w-7 (A) |  ADF435x module pin header   |
   h.4:(GND)-w----------------------w-GND | oe-w-----w-v.a        |     component side view      |
   h.16:D13(SCK)-w-------------CLK--w-b.8 | a.8(clk)-w----w-4 (B) |------------------------------|
@@ -47,25 +49,16 @@
   h.9:D6=p====================PDR==p=b.1 | a.1(pdr)-w----w-1 (G) | [[sleeve]] jumper to  8 .    |
   h.27:(5V From Nano.reg5)-w--5V---w-b.v | v.a(3v3)-w----w-9 (H) <- (NOT h.17)
   //                  (single point)-b.v-w--------------w-5V (I) <- To pll.reg3.3 input •5.5V MAX•
-  h.19:A0---lead wire---10K resistor---wire---touchPad:LEFT
-  h.20:A1---lead wire---10K resistor---wire---touchPad:DOWN
-  h.21:A2---lead wire---10K resistor---wire---touchPad:UP
-  h.22:A3---lead wire---10K resistor---wire---touchPad:RIGHT
-  h.23:SDA--------------OLED:SDA
+  h.26:A7  (available)          
+  h.25:A6  (available)          
   h.24:SCL--------------OLED:SCL
-  h.25:A6  (available)
-  h.26:A7  (available)
-  ISP.1:MISO
-  ISP.2:5V--------------OLED:5V, KNOB:5V
-  ISP.3:SCK
-  ISP.4:MOSI
-  ISP.5:RESET
-  ISP.6:GND-------------OLED:GND, KNOB:GND
-  h.3:RST---------------OLED:RESET
-  h.5:D2(INT0)----------KNOB:J
-  h.6:D3(INT1)----------KNOB:K
-  h.29:(system.pwr.return---GND: Nano.reg5 return)
-  h.30:(system.pwr.supply---VIN: Nano.reg5 input)
+  h.23:SDA--------------OLED:SDA
+  h.22:A3/D17-----------K_B                                      |------------------------------|
+  h.21:A2/D16-----------J_B                                      |        ISP pin header        |
+  h.20:A1/D15-----------ButtonB                                  |------------------------------|
+  h.19:A0/D14-----------ButtonA                                  |       GND | 6 | 5 | RST      |
+  h.6:D3(INT1)----------K_A                                      |      MOSI | 4 | 3 | SCK      |
+  h.5:D2(INT0)----------J_A                                      |        5V | 2 | 1 | MISO     |
   ------------------------------------------------------------------------------------------------
   † posts: equal length, STIFF, solderable, conductors that fit in the holes - dont use bus wire.
   †† Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
