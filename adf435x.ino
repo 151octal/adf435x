@@ -1,19 +1,24 @@
-/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~450 lines, ~20k mem).
+/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~450 lines, ~25k mem).
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source code.
     https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
+  #include "Adafruit_EEPROM_I2C.h"
   #include <Adafruit_GFX.h>
+  #include "Adafruit_seesaw.h"
   #include <Arduino.h>
   #include <ArxContainer.h>
-  #include <BasicEncoder.h>
-  #include "OakOLED.h"
+  #include "SSD1306Ascii.h"
+  #include "SSD1306AsciiWire.h"
   #include <SPI.h>
+  #include <TimerOne.h>
   #include <Wire.h>
 #define DEBUG
-#undef DEBUG
+//#undef DEBUG
+  auto setup() -> void {}
 ; using u64 = unsigned long long;
   using DBL = double;
-  using OLED = OakOLED;
+  using EMEM = Adafruit_EEPROM_I2C;
+  using OLED = SSD1306AsciiWire;
   enum Enable { OFF = 0, ON = 1 };
     #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
@@ -24,14 +29,13 @@
   void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
   void pd( const char* const s, const DBL& arg, int num = 0 ) { pr(s), pr(arg,num); }
   void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
- /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
+  /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
       default: break; case 8: case 16: case 24: pr(' '); }            // in byte sized chunks,
     pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time. */
       #endif
 namespace Hardware {
   // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
-  enum PIN : u8 { J_A =  2, K_A =  3, MUX =  4, PDR =  6, LD_A = 7, LE_A = 10,
-                  B_A = 14, B_B = 15, J_B = 16, K_B = 17 };
+  enum PIN : u8 { MUX =  4, PDR =  6, LD_A = 7, LE_A = 10 };
   enum UNIT { A, /* B, */ _end };
   constexpr struct CTRL { PIN le, ld; } ctrl[] = { [A] = { LE_A, LD_A } };/*
     , [B] = { LE_B, LD_B } };*/
@@ -43,13 +47,27 @@ namespace Hardware {
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
+  volatile bool blank{ 0 };                           // oled timeout result
+  void Hide(void) { blank = 1; }
+    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 } namespace HW = Hardware; namespace Synthesis {
  enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum  Axis : size_t { AMPL, FREQ, DF, PHAS, DP };
+  enum class Axis : size_t { AMPL = 1, FREQ = AMPL << 1, PHAS = FREQ << 1 };
+  Axis& operator++(Axis& axis) { switch(axis) {
+    case Axis::AMPL: return axis = Axis::FREQ;
+    case Axis::FREQ: return axis = Axis::PHAS;
+    case Axis::PHAS: return axis = Axis::AMPL; } }
+  Axis& operator--(Axis& axis) { switch(axis) {
+    case Axis::AMPL: return axis = Axis::PHAS;
+    case Axis::FREQ: return axis = Axis::AMPL;
+    case Axis::PHAS: return axis = Axis::FREQ; } }
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
-  enum  Direction : char { up, dn, left, rght };
+  enum  Dir : u8 { sel = 2, up  = sel << 1, sav = sel+up,
+                            left = up << 1, prev = sel+left,
+                            dn = left << 1, rcl = sel+dn,
+                            rght = dn << 1, next = sel+rght };
   constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
@@ -77,7 +95,7 @@ namespace Hardware {
  constexpr   u16  IOTA{ 1000 };                     // IOTA such that the following are exact.
   constexpr auto  R_COUNT{ u16(OSC / IOTA / MOD) }; // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  COMP{ ON };                       // OFF: No OSCillator error COMPensation.
- constexpr  auto  CORRECTION{ -420 };               // Determined by working in reverse, from
+ constexpr  auto  CORRECTION{ -150 };               // Determined by working in reverse, from
   constexpr auto  REF_ERROR{ (COMP) * CORRECTION }; // the value of REF, as measured, next line.
   constexpr auto  REF{ OSC + REF_ERROR };           // Measured reference oscillator frequency.
   constexpr auto  TGLR{ OFF }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
@@ -166,6 +184,7 @@ class SpecifiedOverlay {
     SPI.endTransaction();
     return *this; }
   auto lock() -> void { HW::hardWait(ld); } // Wait on active ld pin, until lock is indicated.
+  auto locked() -> int { return digitalRead( static_cast<u8>(ld) ); }
   auto operator()( const HW::PIN _le, HW::PIN _ld ) -> decltype(*this) {
     le = _le; ld =_ld; return *this; }
   auto operator()( const HW::CTRL& io ) -> decltype(operator()(io.le, io.ld)) {
@@ -232,21 +251,24 @@ class Resolver {
     loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
     loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
     return loci; }
+  auto pnum() -> const u64 { return loci.prop; }
+  auto pnum(const u64& bn) -> const decltype(loci) {
+    loci.prop = constrain(bn, 1, loci.dnom-1 ); return loci; }
   public:
   Resolver( const DBL& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
-  auto operator()(const u64& bn, Axis axis = FREQ) -> const decltype(loci) { switch(axis) {
-    case AMPL:  return amplitude(static_cast<dBm>(bn));
+  auto operator()(const u64& bn, Axis axis = Axis::FREQ) -> const decltype(loci) { switch(axis) {
+    case Axis::AMPL:  return amplitude(static_cast<dBm>(bn));
     default:
-    case FREQ:  return omega(bn);
-    case PHAS:  return phi(DBL(bn)); } }
+    case Axis::FREQ:  return omega(bn);
+    case Axis::PHAS:  return pnum(bn); } }//phi(DBL(bn)); } }
       // Resolver value dispatcher. Returns Axis selective value from State
-  const auto operator()(Axis axis = FREQ) -> const u64 {
+  const auto operator()(Axis axis = Axis::FREQ) -> const u64 {
     switch (axis) {
-      case AMPL:  return static_cast<u64>(amplitude());
+      case Axis::AMPL:  return static_cast<u64>(amplitude());
       default:
-      case FREQ:  return omega();
-      case PHAS:  return static_cast<u64>(phi()); } } };
+      case Axis::FREQ:  return omega();
+      case Axis::PHAS:  return pnum(); } } };
   template <size_t Digits>
 class Indexer {
   private:
@@ -261,7 +283,7 @@ class Indexer {
   auto operator++(int) -> decltype(*this) { return operator++(); }
   auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
   auto operator--(int) -> decltype(*this) { return operator--(); } };
-  template <size_t Digits, size_t Radix = 10>
+  template <size_t Digits, size_t Radix>
 class Numeral {
   private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
@@ -275,12 +297,12 @@ class Numeral {
     u64 sum{0};
     for(u8 idx{0}; idx!=numrl.size(); idx++) sum += operator[](idx) * power(Radix, idx);
     return sum; }
-  auto operator()(const Direction& d) -> void { switch(d) {
+  auto operator()(const Dir& d) -> void { switch(d) {
     default:  break;
     case up:  { u64 sum{ operator()() }; sum += power(Radix, cursor());
-                operator()( constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
+                operator()( sum ); } break;//constrain(sum, MIN_FREQ, MAX_FREQ)
     case dn:  { u64 sum{ operator()() }; sum -= power(Radix, cursor());
-                operator()( constrain(sum, MIN_FREQ, MAX_FREQ)); } break;//
+                operator()( sum ); } break;//constrain(sum, MIN_FREQ, MAX_FREQ)
     case left: ++cursor; break;
     case rght: --cursor; break; } }
   auto operator()(u64 bn) -> void {
@@ -295,54 +317,14 @@ class Numeral {
     for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
     #endif
   auto size() -> const size_t { return numrl.size(); }
-  auto disp( OLED& oled, int x, int y) -> void {
-    oled.setCursor(x,y);
-    for(size_t ix{}; size() != ix; ix++) oled.print( operator[](size() - 1 - ix) ); } };
-struct Panel {
-  Numeral<10> f{bottom}, df{25*kHz};
-  Numeral<4>  pnumr{1}, dp{1};
-  Numeral<1,4> a{0};
-    #ifdef DEBUG
-  auto pr(Axis axis = FREQ) -> void { switch(axis) {
-    case AMPL:  a.pr();     break;
-    default:
-    case FREQ:  f.pr();     break;
-    case DF:    df.pr();    break;
-    case PHAS:  pnumr.pr(); break;
-    case DP:    dp.pr();    break; } }
-      #endif
-  auto operator()(Axis axis = FREQ) -> const u64 { switch(axis) {
-    case AMPL:  return u64(a());
-    default:
-    case FREQ:  return f();
-    case DF:    return df();
-    case PHAS:  return pnumr();
-    case DP:    return dp();  } }
-  auto operator()(const u64& bn, Axis axis = FREQ) -> void { switch(axis) {
-    case AMPL:  a(dBm(bn));  break;
-    default:
-    case FREQ:  f(bn);       break;
-    case DF:    df(bn);      break;
-    case PHAS:  pnumr(bn);   break;
-    case DP:    dp(bn);      break; } } 
-};/* End Synthesis:: */ }/*
-BasicEncoder encoder(2, 3,HIGH);
-void pciSetup(byte pin) {
-  *digitalPinToPCMSK(pin) |= bit(digitalPinToPCMSKbit(pin));  // enable pin
-  PCIFR |= bit(digitalPinToPCICRbit(pin));                    // clear outstanding interrupt
-  PCICR |= bit(digitalPinToPCICRbit(pin)); }
-void setup_encoders(int a, int b) {
-  uint8_t old_sreg = SREG;
-  cli();
-  pciSetup(a);
-  pciSetup(b);
-  //encoder.reset();
-  SREG = old_sreg; }
-ISR(PCINT2_vect) {
-  encoder.service(); }*/
+  auto disp( OLED& oled ) -> void {
+    for(size_t ix{}; size() != ix; ix++) oled.print(operator[](size()-1-ix));    oled.println();
+    for(size_t ix{}; size()-1-cursor() != ix; ix++) oled.print(' ');    oled.println('^'); } };
+/* End Synthesis:: */ }
     /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
     until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
-auto setup() -> void { using namespace Hardware;    // "And, away we go." Gleason.
+auto loop() -> void {                               // "And, away we go ..." Gleason.
+  using namespace Hardware;
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
   rf( OFF );
   pinMode(static_cast<u8>(PIN::LE_A), OUTPUT);
@@ -352,20 +334,13 @@ auto setup() -> void { using namespace Hardware;    // "And, away we go." Gleaso
   // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
   // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
-  pinMode(static_cast<u8>(PIN::B_A), INPUT_PULLUP);
-  pinMode(static_cast<u8>(PIN::J_A), INPUT_PULLUP);
-  pinMode(static_cast<u8>(PIN::K_A), INPUT_PULLUP);
-  pinMode(static_cast<u8>(PIN::B_B), INPUT_PULLUP);
-  pinMode(static_cast<u8>(PIN::J_B), INPUT_PULLUP);
-  pinMode(static_cast<u8>(PIN::K_B), INPUT_PULLUP);
+  Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
-  /*setup_encoders(2,3);
-  encoder.set_reverse(); */}
-    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
-auto loop() -> void { using namespace Synthesis;
-; SpecifiedOverlay pll;
+  Timer1.initialize(7654321UL);  Timer1.attachInterrupt(HW::Hide);
+  using namespace Synthesis;
+; SpecifiedOverlay pll;                             // ... with it all on the stack. Me.
     #ifdef DEBUG
-  Serial.begin(1000000L); delay(1000L);
+  Serial.begin(1000000L);// delay(1000L);
     #endif // Quantiy I::_end calls of set() are required, in any order.
   //                     I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
   pll( I::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
@@ -405,37 +380,79 @@ auto loop() -> void { using namespace Synthesis;
   pll( I::rfFBselect, !Feedback );  // EEK! Why the negation? Perhaps I've been daVinci'd.   (33)
   pll( I::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
-; Panel panel;
-  Resolver resolver;
-  OLED oled;  oled.begin();  oled.setTextSize(2);
-  panel(plus2,AMPL);
-  pll(resolver(panel(AMPL),AMPL));
-  pll.phAdj(OFF).set(resolver(0/360.,PHAS));
-  panel(pll().numr,PHAS);
-  // State trajectory versus frequency along a line: loci(f) = resolver(slope * f + bottom)
-  auto top{ 100*MHz };
-  // panel( 4*GHz + 400*MHz, FREQ ); // 4400 MHz requires at least thirty THREE bits.
-  panel( 12500,DF );
-  HW::rf(ON);
-  auto iteration{ 0UL };
- for(bool once{ 0 }; ON; ) {
-    pll( resolver(panel()) ).flush().lock();
-      oled.clearDisplay();   panel.df.disp(oled, 0, 0);
-      oled.setTextSize(2);   panel.f.disp(oled, 0, 12);
-      oled.setTextSize(1);   oled.setCursor(0, 30);
-      oled.print("rpwr:");   oled.print(pll().rpwr); oled.print(" rdiv:"); oled.print(pll().rdiv);
-      oled.print("\ndnom:"); oled.print(pll().dnom); oled.print(" prop:"); oled.print(pll().prop);
-      oled.print("\nwhol:"); oled.print(pll().whol); oled.print(" numr:"); oled.print(pll().numr);
-      oled.print("\niter:"); oled.print(++iteration);
-    oled.display();
-    #ifdef DEBUG
-      //if (encoder.get_change()) Serial.print(encoder.get_count()); pr(' ');
-      panel.pr(); panel.pr(DF);
-      panel.pr(DP); panel.pr(PHAS);
-      panel.pr(AMPL); /*pr(' ');
-      pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
-      pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr); */
-      pr('\n');
-    #endif
-    panel( random(0,5250) * panel(DF) + bottom ); // y = mx + b
-    do delay(1666); while(once); } } // kd9fww
+; Resolver resolver;
+  pll.phAdj(OFF);
+  Numeral<1,4> pwr{plus5};
+  Numeral<10,10> frequency{bottom};  for(auto x{5}; x; --x) frequency(left);
+  Numeral<4,10> angle{1};
+  Axis axis{ Axis::FREQ };
+  OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
+  EMEM ee; while(!ee.begin());
+  u64 bn{};
+  ee.readObject(0, bn); pwr(bn);
+  ee.readObject(sizeof(u64), bn); frequency(bn);
+  ee.readObject(2*sizeof(u64), bn); angle(bn);      //  FIX ME
+    // HW::rf(ON);
+  Adafruit_seesaw ass;  while(!ass.begin());  ass.pinModeBulk(0x3F, INPUT_PULLUP);
+    //auto knob{ ass.getEncoderPosition() };
+; for( bool update{1}; ON; ) {
+    auto buttons{ 0x3F ^ ass.digitalReadBulk(0x3F) };
+    switch(buttons) { default: break;
+      case sel:   update = 1; break;
+      case up:    switch(axis) {
+                    case Axis::AMPL:  pwr(up); break;
+                    case Axis::FREQ:  frequency(up); break;
+                    case Axis::PHAS:  angle(up); break; } update = 1; break;
+      case sav:   bn = pwr();  ee.writeObject(0, bn);
+                  bn = frequency(); ee.writeObject(sizeof(u64), bn);
+                  bn = angle(); ee.writeObject(2*sizeof(u64), bn);
+                  update = 1; break;
+      case left:  switch(axis) {
+                    case Axis::AMPL:  pwr(left); break;
+                    case Axis::FREQ:  frequency(left); break;
+                    case Axis::PHAS:  angle(left); break; } update = 1; break;
+      case prev:  --axis; update = 1; break;
+      case dn:    switch(axis) {
+                    case Axis::AMPL:  pwr(dn); break;
+                    case Axis::FREQ:  frequency(dn); break;
+                    case Axis::PHAS:  angle(dn); break; } update = 1; break;
+      case rcl:   ee.readObject(0, bn); pwr(bn);
+                  ee.readObject(sizeof(u64), bn); frequency(bn);
+                  ee.readObject(2*sizeof(u64), bn); angle(bn);  break;
+      case rght:  switch(axis) {
+                    case Axis::AMPL:  pwr(rght); break;
+                    case Axis::FREQ:  frequency(rght); break;
+                    case Axis::PHAS:  angle(rght); break; } update = 1; break;
+      case next:  ++axis; update = 1; break; } /*
+        auto diff{ ass.getEncoderPosition() - knob };
+        if( 0 != diff ) { knob += diff; update = 1;
+        if( 0  > diff ) { if(!mode) frequency(left); else frequency(dn); } else  {
+        if( 0  < diff ) { if(!mode) frequency(rght); else frequency(up); }       } } */
+    if( update ) {
+      pll(resolver(frequency())).set(resolver(pwr(),Axis::AMPL));
+      pll(resolver(angle(), Axis::PHAS)).flush().lock();
+      Timer1.start();
+      oled.clear();
+      oled.setFont(font5x7);  oled.setLetterSpacing(1);
+      switch(axis) {
+        case Axis::AMPL:  oled.println("Power"); break;
+        case Axis::FREQ:  oled.println("Frequency"); break;
+        case Axis::PHAS:  oled.println("Phase"); break; }
+      oled.setFont(X11fixed7x14); oled.setLetterSpacing(3);
+      switch(axis) {
+        case Axis::AMPL:  pwr.disp(oled); break;
+        case Axis::FREQ:  frequency.disp(oled); break;
+        case Axis::PHAS:  angle.disp(oled); break; }
+      #ifdef DEBUG
+        oled.setFont(font5x7);  oled.setLetterSpacing(1);
+        oled.print("rpwr: ");   oled.print(pll().rpwr); oled.print(" rdiv: "); oled.print(pll().rdiv);
+        oled.print("\ndnom: "); oled.print(pll().dnom); oled.print(" prop: "); oled.print(pll().prop);
+        oled.print("\nwhol: "); oled.print(pll().whol); oled.print(" numr: "); oled.print(pll().numr);
+        //frequency.pr();
+        pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
+        pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
+        pr('\n');
+      #endif
+      update = HW::blank = 0; }
+    if(HW::blank) { Timer1.stop(); oled.clear(); HW::blank = 0; }
+    delay(33);  } } // kd9fww
