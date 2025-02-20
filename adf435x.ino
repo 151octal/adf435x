@@ -13,9 +13,9 @@
   #include <TimerOne.h>
   #include <Wire.h>
 #define DEBUG
-//#undef DEBUG
+  #undef DEBUG
   auto setup() -> void {}
-; using u64 = unsigned long long;
+; using i64 = long long;
   using DBL = double;
   using EMEM = Adafruit_EEPROM_I2C;
   using OLED = SSD1306AsciiWire;
@@ -41,7 +41,8 @@ namespace Hardware {
     , [B] = { LE_B, LD_B } };*/
   static_assert(UNIT::_end == sizeof(ctrl) / sizeof(ctrl[0]));
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
-  const auto rf = [](bool enable) { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
+  const auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
+  const auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
   const auto tx = [](const PIN& le, void *pByte, int nByte) {
     auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
@@ -49,10 +50,9 @@ namespace Hardware {
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
   volatile bool blank{ 0 };                           // oled timeout result
   void Hide(void) { blank = 1; }
-    // Jettson[George]: "Jane! JANE! Stop this crazy thing! JANE! !!!".
 } namespace HW = Hardware; namespace Synthesis {
  enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum class Axis : size_t { AMPL = 1, FREQ = AMPL << 1, PHAS = FREQ << 1 };
+  enum class Axis : size_t { AMPL = 1, FREQ, PHAS };
   Axis& operator++(Axis& axis) { switch(axis) {
     case Axis::AMPL: return axis = Axis::FREQ;
     case Axis::FREQ: return axis = Axis::PHAS;
@@ -78,10 +78,10 @@ namespace Hardware {
   constexpr auto  OVERLAYED_REGISTERS{ 6 };
   enum  PRSCL { four5ths = 0, eight9ths };
   enum  PDpolarity { negative = 0, positive };
-  auto  power(u8 radix, u8 exponent) -> const u64 { // radix raised to exponent
-          u64 rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
- constexpr  u64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz }, bottom{ 34*MHz + 375*kHz };
-  constexpr u64   MAX_VCO{ 4400000000 };            // 4400 MHz.
+  auto  power(u8 radix, u8 exponent) -> const i64 { // radix raised to exponent
+          i64 rv{1}; for(auto ix{exponent}; ix; --ix) rv *= radix; return rv; }
+ constexpr  i64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz }, bottom{ 34*MHz + 375*kHz };
+  constexpr i64   MAX_VCO{ 4400000000 };            // 4400 MHz.
   constexpr  u32  MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
   constexpr  u32  MIN_PFD{ MIN_VCO / 17600 };       // 125 kHz.
   constexpr  u32  MAX_PFD{ MIN_VCO / 50 };          // ≈45 MHz (Found in datasheet fine print).
@@ -240,9 +240,9 @@ class Resolver {
       auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
       loci.prop = (1 > proportion) ? 1 : proportion;
       return loci; }
-  auto omega() -> const u64 {
-    return u64(pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
-  auto omega(const u64& bn) -> const decltype(loci) {
+  auto omega() -> const i64 {
+    return i64(pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
+  auto omega(const i64& bn) -> const decltype(loci) {
     auto freq{ constrain(bn, MIN_FREQ, MAX_FREQ) };
     loci.rdiv = u16( floor( log2(MAX_VCO/freq) ) );
     auto fractional_N{ (freq / pfd) * pow(2, loci.rdiv) };
@@ -251,21 +251,21 @@ class Resolver {
     loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
     loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
     return loci; }
-  auto pnum() -> const u64 { return loci.prop; }
-  auto pnum(const u64& bn) -> const decltype(loci) {
+  auto pnum() -> const i64 { return loci.prop; }
+  auto pnum(const i64& bn) -> const decltype(loci) {
     loci.prop = constrain(bn, 1, loci.dnom-1 ); return loci; }
   public:
   Resolver( const DBL& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
-  auto operator()(const u64& bn, Axis axis = Axis::FREQ) -> const decltype(loci) { switch(axis) {
+  auto operator()(const i64& bn, Axis axis = Axis::FREQ) -> const decltype(loci) { switch(axis) {
     case Axis::AMPL:  return amplitude(static_cast<dBm>(bn));
     default:
     case Axis::FREQ:  return omega(bn);
     case Axis::PHAS:  return pnum(bn); } }//phi(DBL(bn)); } }
       // Resolver value dispatcher. Returns Axis selective value from State
-  const auto operator()(Axis axis = Axis::FREQ) -> const u64 {
+  const auto operator()(Axis axis = Axis::FREQ) -> const i64 {
     switch (axis) {
-      case Axis::AMPL:  return static_cast<u64>(amplitude());
+      case Axis::AMPL:  return static_cast<i64>(amplitude());
       default:
       case Axis::FREQ:  return omega();
       case Axis::PHAS:  return pnum(); } } };
@@ -283,35 +283,35 @@ class Indexer {
   auto operator++(int) -> decltype(*this) { return operator++(); }
   auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
   auto operator--(int) -> decltype(*this) { return operator--(); } };
-  template <size_t Digits, size_t Radix>
+  template <size_t Digits, size_t Radix = 10>
 class Numeral {
   private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
   public:
   Indexer<Digits> cursor;
-  Numeral(u64 bn = bottom) { operator()(bn); }
+  Numeral(i64 bn) { operator()(bn); }
   virtual ~Numeral() {}
   auto operator[](const size_t& position) -> const u8 {
     return numrl[ constrain(position, 0, Digits-1) ]; } 
-  auto operator()() -> const u64 {
-    u64 sum{0};
+  auto operator()() -> const i64 {
+    i64 sum{0};
     for(u8 idx{0}; idx!=numrl.size(); idx++) sum += operator[](idx) * power(Radix, idx);
     return sum; }
   auto operator()(const Dir& d) -> void { switch(d) {
     default:  break;
-    case up:  { u64 sum{ operator()() }; sum += power(Radix, cursor());
-                operator()( sum ); } break;//constrain(sum, MIN_FREQ, MAX_FREQ)
-    case dn:  { u64 sum{ operator()() }; sum -= power(Radix, cursor());
-                operator()( sum ); } break;//constrain(sum, MIN_FREQ, MAX_FREQ)
+    case up:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
+                operator()( sum ); } break;
+    case dn:  { i64 sum{ operator()() }; sum -= power(Radix, cursor());
+                operator()( sum ); } break;
     case left: ++cursor; break;
     case rght: --cursor; break; } }
-  auto operator()(u64 bn) -> void {
+  auto operator()(i64 bn) -> void {
     numrl.clear();
     for(u8 index{0}; index!=Digits; index++) {
       numrl.push_front(bn / power(Radix, Digits-1-index));
         bn %= power(Radix, Digits-1-index); } }
-  auto operator+(const u64& bn) -> decltype(*this) { operator()(operator()() + bn); return *this; }
-  auto operator-(const u64& bn) -> decltype(*this) { operator()(operator()() - bn); return *this; }
+  auto operator+(const i64& bn) -> decltype(*this) { operator()(operator()() + bn); return *this; }
+  auto operator-(const i64& bn) -> decltype(*this) { operator()(operator()() - bn); return *this; }
     #ifdef DEBUG
   auto pr() -> void {
     for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
@@ -321,8 +321,6 @@ class Numeral {
     for(size_t ix{}; size() != ix; ix++) oled.print(operator[](size()-1-ix));    oled.println();
     for(size_t ix{}; size()-1-cursor() != ix; ix++) oled.print(' ');    oled.println('^'); } };
 /* End Synthesis:: */ }
-    /* "How shall I tell you the story?" The King replied, "Start at the beginning. Proceed
-    until the end. Then stop." Lewis Carroll. "Alice's Adventures in Wonderland". 1865. */
 auto loop() -> void {                               // "And, away we go ..." Gleason.
   using namespace Hardware;
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
@@ -382,58 +380,29 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Resolver resolver;
   pll.phAdj(OFF);
-  Numeral<1,4> pwr{plus5};
-  Numeral<10,10> frequency{bottom};  for(auto x{5}; x; --x) frequency(left);
-  Numeral<4,10> angle{1};
+  Numeral<1> pwr{plus5};
+  Numeral<10> frequency{bottom};  for(auto x{5}; x; --x) frequency(left);
+  Numeral<4> angle{1};
   Axis axis{ Axis::FREQ };
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
   EMEM ee; while(!ee.begin());
-  u64 bn{};
+  i64 bn{}; bool transmit;
   ee.readObject(0, bn); pwr(bn);
-  ee.readObject(sizeof(u64), bn); frequency(bn);
-  ee.readObject(2*sizeof(u64), bn); angle(bn);      //  FIX ME
-    // HW::rf(ON);
+  ee.readObject(sizeof(i64), bn); frequency(bn);
+  ee.readObject(2*sizeof(i64), bn); angle(bn);
+  ee.readObject(2*sizeof(i64)+sizeof(bool), transmit);
+  if(transmit) HW::rf(ON);
   Adafruit_seesaw ass;  while(!ass.begin());  ass.pinModeBulk(0x3F, INPUT_PULLUP);
     //auto knob{ ass.getEncoderPosition() };
 ; for( bool update{1}; ON; ) {
-    auto buttons{ 0x3F ^ ass.digitalReadBulk(0x3F) };
-    switch(buttons) { default: break;
-      case sel:   update = 1; break;
-      case up:    switch(axis) {
-                    case Axis::AMPL:  pwr(up); break;
-                    case Axis::FREQ:  frequency(up); break;
-                    case Axis::PHAS:  angle(up); break; } update = 1; break;
-      case sav:   bn = pwr();  ee.writeObject(0, bn);
-                  bn = frequency(); ee.writeObject(sizeof(u64), bn);
-                  bn = angle(); ee.writeObject(2*sizeof(u64), bn);
-                  update = 1; break;
-      case left:  switch(axis) {
-                    case Axis::AMPL:  pwr(left); break;
-                    case Axis::FREQ:  frequency(left); break;
-                    case Axis::PHAS:  angle(left); break; } update = 1; break;
-      case prev:  --axis; update = 1; break;
-      case dn:    switch(axis) {
-                    case Axis::AMPL:  pwr(dn); break;
-                    case Axis::FREQ:  frequency(dn); break;
-                    case Axis::PHAS:  angle(dn); break; } update = 1; break;
-      case rcl:   ee.readObject(0, bn); pwr(bn);
-                  ee.readObject(sizeof(u64), bn); frequency(bn);
-                  ee.readObject(2*sizeof(u64), bn); angle(bn);  break;
-      case rght:  switch(axis) {
-                    case Axis::AMPL:  pwr(rght); break;
-                    case Axis::FREQ:  frequency(rght); break;
-                    case Axis::PHAS:  angle(rght); break; } update = 1; break;
-      case next:  ++axis; update = 1; break; } /*
-        auto diff{ ass.getEncoderPosition() - knob };
-        if( 0 != diff ) { knob += diff; update = 1;
-        if( 0  > diff ) { if(!mode) frequency(left); else frequency(dn); } else  {
-        if( 0  < diff ) { if(!mode) frequency(rght); else frequency(up); }       } } */
     if( update ) {
-      pll(resolver(frequency())).set(resolver(pwr(),Axis::AMPL));
-      pll(resolver(angle(), Axis::PHAS)).flush().lock();
+      pwr(constrain(pwr(),minus4,plus5)); pll(resolver(pwr(), Axis::AMPL));
+      frequency(constrain(frequency(),MIN_FREQ,MAX_FREQ)); pll(resolver(frequency(), Axis::FREQ));
+      angle(constrain(angle(),1,pll().dnom-1)); pll(resolver(angle(), Axis::PHAS)).flush().lock();
       Timer1.start();
       oled.clear();
-      oled.setFont(font5x7);  oled.setLetterSpacing(1);
+      oled.setFont(font5x7); oled.setLetterSpacing(1);
+      if(transmit) oled.print("* "); else oled.print("  ");
       switch(axis) {
         case Axis::AMPL:  oled.println("Power"); break;
         case Axis::FREQ:  oled.println("Frequency"); break;
@@ -455,4 +424,36 @@ auto loop() -> void {                               // "And, away we go ..." Gle
       #endif
       update = HW::blank = 0; }
     if(HW::blank) { Timer1.stop(); oled.clear(); HW::blank = 0; }
+    auto buttons{ 0x3F ^ ass.digitalReadBulk(0x3F) };
+    switch(buttons) { default: break;
+      case sel:   update = 1; break;
+      case up:    switch(axis) {
+                    case Axis::AMPL:  pwr(up); break;
+                    case Axis::FREQ:  frequency(up); break;
+                    case Axis::PHAS:  angle(up); break; } update = 1; break;
+      case sav:   bn = pwr();  ee.writeObject(0, bn);
+                  bn = frequency(); ee.writeObject(sizeof(i64), bn);
+                  bn = angle(); ee.writeObject(2*sizeof(i64), bn);
+                  transmit = HW::rf(); HW::rf(OFF);
+                  ee.writeObject(2*sizeof(i64)+sizeof(bool), transmit);
+                  update = 1; break;
+      case left:  switch(axis) {
+                    case Axis::AMPL:  pwr(left); break;
+                    case Axis::FREQ:  frequency(left); break;
+                    case Axis::PHAS:  angle(left); break; } update = 1; break;
+      case prev:  --axis; update = 1; break;
+      case dn:    switch(axis) {
+                    case Axis::AMPL:  if(pwr()) pwr(dn); break;
+                    case Axis::FREQ:  frequency(dn); break;
+                    case Axis::PHAS:  if(1 < angle()) angle(dn); break; } update = 1; break;
+      case rcl:   ee.readObject(0, bn); pwr(bn);
+                  ee.readObject(sizeof(i64), bn); frequency(bn);
+                  ee.readObject(2*sizeof(i64), bn); angle(bn);
+                  HW::rf(ON); transmit = HW::rf();
+                  break;
+      case rght:  switch(axis) {
+                    case Axis::AMPL:  pwr(rght); break;
+                    case Axis::FREQ:  frequency(rght); break;
+                    case Axis::PHAS:  angle(rght); break; } update = 1; break;
+      case next:  ++axis; update = 1; break; }
     delay(33);  } } // kd9fww
