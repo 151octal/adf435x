@@ -13,7 +13,7 @@
   #include <TimerOne.h>
   #include <Wire.h>
 #define DEBUG
-  #undef DEBUG
+#undef DEBUG
   auto setup() -> void {}
 ; using i64 = long long;
   using DBL = double;
