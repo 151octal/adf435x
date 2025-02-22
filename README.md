@@ -17,21 +17,17 @@
   ------------------------------------------------------------------------------------------------
   Wire-wrap and limit to 5cm and common mode choke the aggregate of (qty:9) wires connecting the
   ADF435x module. Supply the ADF435x module from the mini on-board 5v reg output.
-  Implement NO DC ground loop(s) †.
-  https://en.wikipedia.org/w/index.php?title=Ground_loop_(electricity)
   ------------------------------------------------------------------------------------------------
                   ADF435x module pin header     h.x: mini pcb header pin number
                       component side       5V---h.4:mini.reg5---To pll.reg3.3 input •5.5V MAX•
                         |-------|
                   [[•]] | 0 | 9 | 3v3 -do not connect-
-                  [[•]] | 8 | 7 | GND----h.5:(GND)
+                  [[•]] | 8 | 7 | GND--h.5:(GND)
     h.25:D10(SS*)----le | 6 | 5 | dat--h.26:D11(MOSI)
     h.28:D13(SCK)---clk | 4 | 3 | mux--h19:D4 [optional]
     h.22:D7----------ld | 2 | 1 | pdr--h.21:D6
                         |-------|
     Leave  0  open to provide [[sleeve]] jumper to  8 .
-  ------------------------------------------------------------------------------------------------
-  † Faraday enclosures bonded to earth: a Z5U between GND and earth is better than a DC short.
   ------------------------------------------------------------------------------------------------
   The LED (on D13) appears to be in contention with the default SPI clock line and is not easily
   open circuited. Look, "Let It Be." and "Fughet about it.", OK? SPI will work regardless.

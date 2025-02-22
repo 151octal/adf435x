@@ -23,17 +23,10 @@
   enum Enable { OFF = 0, ON = 1 };
     #ifdef DEBUG  // Debug shorthand.
   void pr( const char& cc ) { Serial.print(cc); }
-  void pr( const u8& uc ) { Serial.print(uc); }
   void pr( const char* const s ) { Serial.print(s); }
-  void pr( const DBL& arg, int num = 0 ) { Serial.print(arg, num); pr(' '); }
   void pr( const u16& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
-  void pr( const u32& arg, int num = DEC ) { Serial.print(arg, num); pr(' '); }
-  void pd( const char* const s, const DBL& arg, int num = 0 ) { pr(s), pr(arg,num); }
   void pr( const char* const s, const u16& arg, int num = DEC ) { pr(s); pr(arg,num); }
-  /* void pb( const u32& arg, u8 nb = 32 ) { while( nb ) { switch(nb) {  // Print binary ...
-      default: break; case 8: case 16: case 24: pr(' '); }            // in byte sized chunks,
-    pr( ((1UL << --nb) & arg ) ? '1' : '0' ); } pr(' '); }            // one bit at a time. */
-      #endif
+    #endif
 namespace Hardware {
   // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
   enum PIN : u8 { MUX =  4, PDR =  6, LD_A = 7, LE_A = 10 };
@@ -41,6 +34,7 @@ namespace Hardware {
   constexpr struct CTRL { PIN le, ld; } ctrl[] = { [A] = { LE_A, LD_A } };/*
     , [B] = { LE_B, LD_B } };*/
   static_assert(UNIT::_end == sizeof(ctrl) / sizeof(ctrl[0]));
+  auto btns(ASS& ass, const u32& msk=0x3f) -> const u32 { return msk ^ ass.digitalReadBulk(msk); }
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
   const auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   const auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
@@ -62,13 +56,11 @@ namespace Hardware {
     case Axis::AMPL: return axis = Axis::PHAS;
     case Axis::FREQ: return axis = Axis::AMPL;
     case Axis::PHAS: return axis = Axis::FREQ; } }
-  auto  btns(ASS& ass, const u32& mask) -> const u32 {
-    return mask ^ ass.digitalReadBulk(mask); }
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
   enum  Dir : u8 { shft = 2, up  = shft << 1, sav = shft+up, left = up << 1, prev = shft+left,
-                    dn = left << 1, rcl = shft+dn, rght = dn << 1, next = shft+rght };
+                    dn = left << 1, ptt = shft+dn, rght = dn << 1, next = shft+rght };
   constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
@@ -386,15 +378,13 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   Axis axis{ Axis::FREQ };
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
   EMEM ee; while(!ee.begin());
-  i64 bn{}; bool transmit;
-  ee.readObject(0, bn); pwr(bn);
-  ee.readObject(sizeof(i64), bn); frequency(bn);
-  ee.readObject(2*sizeof(i64), bn); angle(bn);
-  ee.readObject(2*sizeof(i64)+sizeof(bool), transmit);
-  if(transmit) HW::rf(ON);
-  ASS ass;  while(!ass.begin());  ass.pinModeBulk(0x3F, INPUT_PULLUP);
-    //auto knob{ ass.getEncoderPosition() };
-; for( bool update{1}; ON; ) {
+  struct { i64 p,f,a; bool t; } flash;
+  ee.readObject(0, flash);
+  pwr(flash.p); frequency(flash.f); angle(flash.a); HW::rf(flash.t);
+  ASS ass;
+  bool hasAss{ ass.begin() };
+  if(hasAss)  ass.pinModeBulk(0x3F, INPUT_PULLUP);
+; for( bool update{1}; hasAss; ) {
     if(HW::blank) { Timer1.stop(); oled.clear(); HW::blank = 0; }
     if( update ) {
       pwr(constrain(pwr(),minus4,plus5)); pll(resolver(pwr(), Axis::AMPL));
@@ -423,42 +413,28 @@ auto loop() -> void {                               // "And, away we go ..." Gle
         pr('\n');
       #endif
       update = HW::blank = 0; }
-    auto direction{ btns(ass,0x3F) };
-    switch(direction) { default: break;
-      case shft:  update = 1; break;
+    auto action{ btns(ass) };
+    if(action) { update = 1; switch(action) { default: break;
+      case shft:  while( shft == btns(ass) ); break;
       case up:    switch(axis) {
                     case Axis::AMPL:  pwr(up); break;
                     case Axis::FREQ:  frequency(up); break;
-                    case Axis::PHAS:  angle(up); break; }
-                  while( btns(ass,0x3F) ); update = 1; break;
-      case sav:   bn = pwr();  ee.writeObject(0, bn);
-                  bn = frequency(); ee.writeObject(sizeof(i64), bn);
-                  bn = angle(); ee.writeObject(2*sizeof(i64), bn);
-                  transmit = HW::rf(); HW::rf(OFF);
-                  ee.writeObject(2*sizeof(i64)+sizeof(bool), transmit);
-                  while( btns(ass,0x3F) ); update = 1; break;
+                    case Axis::PHAS:  angle(up); break; } while( btns(ass) ); break;
+      case sav:   flash.p = pwr(); flash.f = frequency(); flash.a = angle(); flash.t = HW::rf();
+                  ee.writeObject(0, flash); while( btns(ass) ); break;
       case left:  switch(axis) {
                     case Axis::AMPL:  pwr(left); break;
                     case Axis::FREQ:  frequency(left); break;
-                    case Axis::PHAS:  angle(left); break; }
-                    while( btns(ass,0x3F) ); update = 1; break;
-      case prev:  --axis; while(btns(ass, 0x3f)); update = 1; break;
+                    case Axis::PHAS:  angle(left); break; } while( btns(ass) ); break;
+      case prev:  --axis; while( btns(ass) ); break;
       case dn:    switch(axis) {
                     case Axis::AMPL:  if(pwr()) pwr(dn); break;
                     case Axis::FREQ:  frequency(dn); break;
-                    case Axis::PHAS:  if(1 < angle()) angle(dn); break; }
-                    while(btns(ass, 0x3f)); update = 1; break;
-      case rcl:   ee.readObject(0, bn); pwr(bn);
-                  ee.readObject(sizeof(i64), bn); frequency(bn);
-                  ee.readObject(2*sizeof(i64), bn); angle(bn);
-                  ee.readObject(2*sizeof(i64)+sizeof(bool), transmit);
-                  HW::rf(ON); transmit = HW::rf();
-                  while(btns(ass, 0x3f));
-                  break;
+                    case Axis::PHAS:  if(1 < angle()) angle(dn); break; } while(btns(ass)); break;
+      case ptt:   HW::rf( !HW::rf() ); while( btns(ass) ); break;
       case rght:  switch(axis) {
                     case Axis::AMPL:  pwr(rght); break;
                     case Axis::FREQ:  frequency(rght); break;
-                    case Axis::PHAS:  angle(rght); break; }
-                    while(btns(ass, 0x3f)); update = 1; break;
-      case next:  ++axis; while(btns(ass, 0x3f)); update = 1; break; }
+                    case Axis::PHAS:  angle(rght); break; } while( btns(ass) ); break;
+      case next:  ++axis; while( btns(ass) ); break; } }
     delay(33);  } } // kd9fww
