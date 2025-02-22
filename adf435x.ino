@@ -16,6 +16,7 @@
   #undef DEBUG
   auto setup() -> void {}
 ; using i64 = long long;
+  using ASS = Adafruit_seesaw;
   using DBL = double;
   using EMEM = Adafruit_EEPROM_I2C;
   using OLED = SSD1306AsciiWire;
@@ -61,13 +62,13 @@ namespace Hardware {
     case Axis::AMPL: return axis = Axis::PHAS;
     case Axis::FREQ: return axis = Axis::AMPL;
     case Axis::PHAS: return axis = Axis::FREQ; } }
+  auto  btns(ASS& ass, const u32& mask) -> const u32 {
+    return mask ^ ass.digitalReadBulk(mask); }
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
-  enum  Dir : u8 { sel = 2, up  = sel << 1, sav = sel+up,
-                            left = up << 1, prev = sel+left,
-                            dn = left << 1, rcl = sel+dn,
-                            rght = dn << 1, next = sel+rght };
+  enum  Dir : u8 { shft = 2, up  = shft << 1, sav = shft+up, left = up << 1, prev = shft+left,
+                    dn = left << 1, rcl = shft+dn, rght = dn << 1, next = shft+rght };
   constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
@@ -334,8 +335,8 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
   Timer1.initialize(7654321UL);  Timer1.attachInterrupt(HW::Hide);
-; using namespace Synthesis;
-  SpecifiedOverlay pll;                             // ... with it all on the stack. Me.
+; using namespace Synthesis;                        // ... with it all on the stack. Me.
+  SpecifiedOverlay pll;
     #ifdef DEBUG
   Serial.begin(1000000L);// delay(1000L);
     #endif // Quantiy I::_end calls of set() are required, in any order.
@@ -381,7 +382,7 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   pll.phAdj(OFF);
   Numeral<1> pwr{plus5};
   Numeral<10> frequency{bottom};  for(auto x{4}; x; --x) frequency(left);
-  Numeral<4> angle{1};
+  Numeral<3> angle{1};
   Axis axis{ Axis::FREQ };
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
   EMEM ee; while(!ee.begin());
@@ -391,7 +392,7 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   ee.readObject(2*sizeof(i64), bn); angle(bn);
   ee.readObject(2*sizeof(i64)+sizeof(bool), transmit);
   if(transmit) HW::rf(ON);
-  Adafruit_seesaw ass;  while(!ass.begin());  ass.pinModeBulk(0x3F, INPUT_PULLUP);
+  ASS ass;  while(!ass.begin());  ass.pinModeBulk(0x3F, INPUT_PULLUP);
     //auto knob{ ass.getEncoderPosition() };
 ; for( bool update{1}; ON; ) {
     if(HW::blank) { Timer1.stop(); oled.clear(); HW::blank = 0; }
@@ -406,7 +407,7 @@ auto loop() -> void {                               // "And, away we go ..." Gle
       #else
       oled.setFont(X11fixed7x14); oled.setLetterSpacing(3);
       #endif
-      if(transmit) oled.print("*"); else oled.print(" ");
+      if(HW::rf()) oled.print("*"); else oled.print(" ");
       switch(axis) {
         case Axis::AMPL:  oled.println("Power"); pwr.disp(oled); break;
         case Axis::FREQ:  oled.println("Frequency"); frequency.disp(oled); break;
@@ -422,36 +423,42 @@ auto loop() -> void {                               // "And, away we go ..." Gle
         pr('\n');
       #endif
       update = HW::blank = 0; }
-    auto action{ 0x3F ^ ass.digitalReadBulk(0x3F) };
-    switch(action) { default: break;
-      case sel:   update = 1; break;
+    auto direction{ btns(ass,0x3F) };
+    switch(direction) { default: break;
+      case shft:  update = 1; break;
       case up:    switch(axis) {
                     case Axis::AMPL:  pwr(up); break;
                     case Axis::FREQ:  frequency(up); break;
-                    case Axis::PHAS:  angle(up); break; } update = 1; break;
+                    case Axis::PHAS:  angle(up); break; }
+                  while( btns(ass,0x3F) ); update = 1; break;
       case sav:   bn = pwr();  ee.writeObject(0, bn);
                   bn = frequency(); ee.writeObject(sizeof(i64), bn);
                   bn = angle(); ee.writeObject(2*sizeof(i64), bn);
                   transmit = HW::rf(); HW::rf(OFF);
                   ee.writeObject(2*sizeof(i64)+sizeof(bool), transmit);
-                  update = 1; break;
+                  while( btns(ass,0x3F) ); update = 1; break;
       case left:  switch(axis) {
                     case Axis::AMPL:  pwr(left); break;
                     case Axis::FREQ:  frequency(left); break;
-                    case Axis::PHAS:  angle(left); break; } update = 1; break;
-      case prev:  --axis; update = 1; break;
+                    case Axis::PHAS:  angle(left); break; }
+                    while( btns(ass,0x3F) ); update = 1; break;
+      case prev:  --axis; while(btns(ass, 0x3f)); update = 1; break;
       case dn:    switch(axis) {
                     case Axis::AMPL:  if(pwr()) pwr(dn); break;
                     case Axis::FREQ:  frequency(dn); break;
-                    case Axis::PHAS:  if(1 < angle()) angle(dn); break; } update = 1; break;
+                    case Axis::PHAS:  if(1 < angle()) angle(dn); break; }
+                    while(btns(ass, 0x3f)); update = 1; break;
       case rcl:   ee.readObject(0, bn); pwr(bn);
                   ee.readObject(sizeof(i64), bn); frequency(bn);
                   ee.readObject(2*sizeof(i64), bn); angle(bn);
+                  ee.readObject(2*sizeof(i64)+sizeof(bool), transmit);
                   HW::rf(ON); transmit = HW::rf();
+                  while(btns(ass, 0x3f));
                   break;
       case rght:  switch(axis) {
                     case Axis::AMPL:  pwr(rght); break;
                     case Axis::FREQ:  frequency(rght); break;
-                    case Axis::PHAS:  angle(rght); break; } update = 1; break;
-      case next:  ++axis; update = 1; break; }
+                    case Axis::PHAS:  angle(rght); break; }
+                    while(btns(ass, 0x3f)); update = 1; break;
+      case next:  ++axis; while(btns(ass, 0x3f)); update = 1; break; }
     delay(33);  } } // kd9fww
