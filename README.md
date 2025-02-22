@@ -1,25 +1,25 @@
 
 ```cpp
-  /* ©2024 kd9fww. ADF435x stand alone using Arduino nano hardware SPI.
+  /* ©2024 kd9fww. ADF435x stand alone using ATMEGA328 hardware SPI.
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
   https://www.analog.com/ADF4351 <- The device for which this code is specifically tailored.
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
   US$30, for an assembled pll module from a major online discount household retail store.
   As host for ATMEGA328, the Adafruit 'metro mini' is used which has i2c connectoring and is
-  configured for 3V operation - the Nano product is 5V. I assume that you know what you're doing.
+  configured for 3V operation - the Nano product is 5V. Beyond saying the ADF435x logic is 3V,
+  I assume that you know what you're doing - dont blame me if you BRICK yours.
   ------------------------------------------------------------------------------------------------
   This code is a single pll version only. A second pll would be accommodated with {le, ld} on
-  {D9, D8}, respectively. And sharing their {REF, 5v, clk, dat, pdr, GND} signals. With {3v3, mux}
-  from one pll only. This scheme does not preclude the possibilty of supporting two plls See below
-  Be aware that there exist ADF435x modules that do not have the REF signal brought out on 
-  (what is a dummy) SMA connector. That is, the REF connector is not connected.
-  ------------------------------------------------------------------------------------------------
-  A mechanism for runtime frequency and phase control is provided.
+  {D9, D8}, respectively. And sharing their {REF, 5v, clk, dat, pdr, GND} signals. This scheme
+  does not preclude the possibilty of supporting two plls See below. Be aware that there exist
+  ADF435x modules that do not have the REF signal brought out on (what is a dummy) SMA connector.
+  That is, the REF connector is not connected.
   ------------------------------------------------------------------------------------------------
   Wire-wrap and limit to 5cm and common mode choke the aggregate of (qty:9) wires connecting the
   ADF435x module. Supply the ADF435x module from the mini on-board 5v reg output.
   Implement NO DC ground loop(s) †.
   https://en.wikipedia.org/w/index.php?title=Ground_loop_(electricity)
+  ------------------------------------------------------------------------------------------------
                   ADF435x module pin header     h.x: mini pcb header pin number
                       component side       5V---h.4:mini.reg5---To pll.reg3.3 input •5.5V MAX•
                         |-------|
@@ -35,5 +35,4 @@
   ------------------------------------------------------------------------------------------------
   The LED (on D13) appears to be in contention with the default SPI clock line and is not easily
   open circuited. Look, "Let It Be." and "Fughet about it.", OK? SPI will work regardless.
-  ------------------------------------------------------------------------------------------------
 ```

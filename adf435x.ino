@@ -1,4 +1,4 @@
-/*  ©2024 kd9fww. ADF435x stand alone using Arduino Nano hardware SPI (in ~450 lines, ~25k mem).
+/*  ©2024 kd9fww. ADF435x stand alone using ATMEGA328 hardware SPI (in ~450 lines, ~25k mem).
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source code.
     https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
@@ -13,7 +13,7 @@
   #include <TimerOne.h>
   #include <Wire.h>
 #define DEBUG
-#undef DEBUG
+  #undef DEBUG
   auto setup() -> void {}
 ; using i64 = long long;
   using DBL = double;
@@ -228,7 +228,6 @@ class SpecifiedOverlay {
     /* ©2024 kd9fww */
 class Resolver {
   // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
-  // Where: Amplitude <- |magnitude|, Frequency <- omega, and Phase <- phi, are all scalars.
   private:
   State loci{ INIT };
   DBL pfd; u16 spacing;
@@ -284,8 +283,8 @@ class Indexer {
   auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
   auto operator--(int) -> decltype(*this) { return operator--(); } };
   template <size_t Digits, size_t Radix = 10>
-class Numeral {
-  private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
+class Numeral {  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
+  private:
     std::deque<u8,Digits> numrl;
   public:
   Indexer<Digits> cursor;
@@ -335,8 +334,8 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
   Timer1.initialize(7654321UL);  Timer1.attachInterrupt(HW::Hide);
-  using namespace Synthesis;
-; SpecifiedOverlay pll;                             // ... with it all on the stack. Me.
+; using namespace Synthesis;
+  SpecifiedOverlay pll;                             // ... with it all on the stack. Me.
     #ifdef DEBUG
   Serial.begin(1000000L);// delay(1000L);
     #endif // Quantiy I::_end calls of set() are required, in any order.
@@ -381,7 +380,7 @@ auto loop() -> void {                               // "And, away we go ..." Gle
 ; Resolver resolver;
   pll.phAdj(OFF);
   Numeral<1> pwr{plus5};
-  Numeral<10> frequency{bottom};  for(auto x{5}; x; --x) frequency(left);
+  Numeral<10> frequency{bottom};  for(auto x{4}; x; --x) frequency(left);
   Numeral<4> angle{1};
   Axis axis{ Axis::FREQ };
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
@@ -395,23 +394,23 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   Adafruit_seesaw ass;  while(!ass.begin());  ass.pinModeBulk(0x3F, INPUT_PULLUP);
     //auto knob{ ass.getEncoderPosition() };
 ; for( bool update{1}; ON; ) {
+    if(HW::blank) { Timer1.stop(); oled.clear(); HW::blank = 0; }
     if( update ) {
       pwr(constrain(pwr(),minus4,plus5)); pll(resolver(pwr(), Axis::AMPL));
       frequency(constrain(frequency(),MIN_FREQ,MAX_FREQ)); pll(resolver(frequency(), Axis::FREQ));
       angle(constrain(angle(),1,pll().dnom-1)); pll(resolver(angle(), Axis::PHAS)).flush().lock();
       Timer1.start();
       oled.clear();
+      #ifdef DEBUG
       oled.setFont(font5x7); oled.setLetterSpacing(1);
-      if(transmit) oled.print("* "); else oled.print("  ");
-      switch(axis) {
-        case Axis::AMPL:  oled.println("Power"); break;
-        case Axis::FREQ:  oled.println("Frequency"); break;
-        case Axis::PHAS:  oled.println("Phase"); break; }
+      #else
       oled.setFont(X11fixed7x14); oled.setLetterSpacing(3);
+      #endif
+      if(transmit) oled.print("*"); else oled.print(" ");
       switch(axis) {
-        case Axis::AMPL:  pwr.disp(oled); break;
-        case Axis::FREQ:  frequency.disp(oled); break;
-        case Axis::PHAS:  angle.disp(oled); break; }
+        case Axis::AMPL:  oled.println("Power"); pwr.disp(oled); break;
+        case Axis::FREQ:  oled.println("Frequency"); frequency.disp(oled); break;
+        case Axis::PHAS:  oled.println("Phase"); angle.disp(oled); break; }
       #ifdef DEBUG
         oled.setFont(font5x7);  oled.setLetterSpacing(1);
         oled.print("rpwr: ");   oled.print(pll().rpwr); oled.print(" rdiv: "); oled.print(pll().rdiv);
@@ -423,9 +422,8 @@ auto loop() -> void {                               // "And, away we go ..." Gle
         pr('\n');
       #endif
       update = HW::blank = 0; }
-    if(HW::blank) { Timer1.stop(); oled.clear(); HW::blank = 0; }
-    auto buttons{ 0x3F ^ ass.digitalReadBulk(0x3F) };
-    switch(buttons) { default: break;
+    auto action{ 0x3F ^ ass.digitalReadBulk(0x3F) };
+    switch(action) { default: break;
       case sel:   update = 1; break;
       case up:    switch(axis) {
                     case Axis::AMPL:  pwr(up); break;
