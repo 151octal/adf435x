@@ -13,7 +13,7 @@
   #include <TimerOne.h>
   #include <Wire.h>
 #define DEBUG
-  #undef DEBUG
+#undef DEBUG
   auto setup() -> void {}
 ; using i64 = long long;
   using ASS = Adafruit_seesaw;
@@ -34,8 +34,8 @@ namespace Hardware {
   constexpr struct CTRL { PIN le, ld; } ctrl[] = { [A] = { LE_A, LD_A } };/*
     , [B] = { LE_B, LD_B } };*/
   static_assert(UNIT::_end == sizeof(ctrl) / sizeof(ctrl[0]));
-  constexpr auto pinMask{ 0x3FUL };
-  auto btns(ASS& ass, const u32& msk = pinMask) -> const u32 {
+  constexpr auto btnMask{ 0x3FUL };
+  auto btns(ASS& ass, const u32& msk = btnMask) -> const u32 {
     return msk ^ ass.digitalReadBulk(msk); }
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
   const auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
@@ -49,7 +49,7 @@ namespace Hardware {
   void Hide(void) { blank = 1; }
 } namespace HW = Hardware; namespace Synthesis {
  enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum class Axis : size_t { AMPL = 1, FREQ, PHAS };
+  enum class Axis : size_t { FREQ = 0, AMPL, PHAS };
   Axis& operator++(Axis& axis) { switch(axis) {
     case Axis::AMPL: return axis = Axis::FREQ;
     case Axis::FREQ: return axis = Axis::PHAS;
@@ -61,8 +61,8 @@ namespace Hardware {
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
-  enum Dir : u8 { shft = 2, incr = shft<<1, save = shft+incr, left = incr<<1, prev = shft+left,
-                  decr = left<<1, ptt = shft+decr, rght = decr<<1, next = shft+rght };
+  enum  Action : u8 { shft = 2, incr = shft<<1, left = incr<<1, decr = left<<1, rght = decr<<1,
+                  save = shft+incr, prev = shft+left, xmit = shft+decr, next = shft+rght };
   constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
@@ -139,12 +139,12 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [I::rfDivSelect] = {1, 20, 3},  [I::rfFBselect] = {1, 23, 1},   [I::ledMode] = {0, 22, 2} };
   static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
-  constexpr State INIT{ 0, 0, 0, 0, 1, dBm::minus4 };
+  constexpr State INIT{ dBm::minus4, 0, 1, 0, 0, 1 };
   /* ©2024 kd9fww */
 class SpecifiedOverlay {
   private:
     HW::PIN le{ HW::ctrl[HW::UNIT::A].le }, ld{ HW::ctrl[HW::UNIT::A].ld };
-    NoiseSpurMode nsMode = lowNoise;
+    NoiseSpurMode nsMode = lowNoise;  // sloppy afterthough
     static const LayoutSpecification* const layoutSpec;
     State store{ INIT };
     struct Overlay {
@@ -170,10 +170,10 @@ class SpecifiedOverlay {
     switch( ovl.durty ) { // Avoid the undirty'd. Well, almost.
       default:  break;                    /* Otherwise: say they're all dirty. */
       case  0:  return *this;;            /* None dirty. */
-      case  1:  cx = ovl.NR - 1; break;    /* r0 ••• */
+      case  1:  cx = ovl.NR - 1; break;   /* r0 ••• */
       case  2:  /* fall thru */           /* r1 ••• */
-      case  3:  cx = ovl.NR - 2; break;    /* r1 and r0 ••• */
-      case 16:  cx = ovl.NR - 4; break;    /* r4 ••• */ }
+      case  3:  cx = ovl.NR - 2; break;   /* r1 and r0 ••• */
+      case 16:  cx = ovl.NR - 4; break;   /* r4 ••• */ }
     ovl.durty = 0;
     SPI.beginTransaction( ovl.settings );
     for(/* empty */; ovl.NR != cx; ++cx) HW::tx(le, &ovl.reg[cx], sizeof(ovl.reg[cx]) );
@@ -253,16 +253,16 @@ class Resolver {
   Resolver( const DBL& actual_pfd = PFD, const u16& step = IOTA )
     : pfd{ actual_pfd }, spacing{ step } {}
   auto operator()(const i64& bn, Axis axis = Axis::FREQ) -> const decltype(loci) { switch(axis) {
-    case Axis::AMPL:  return amplitude(static_cast<dBm>(bn));
     default:
     case Axis::FREQ:  return omega(bn);
+    case Axis::AMPL:  return amplitude(static_cast<dBm>(bn));
     case Axis::PHAS:  return pnum(bn); } }//phi(DBL(bn)); } }
       // Resolver value dispatcher. Returns Axis selective value from State
   const auto operator()(Axis axis = Axis::FREQ) -> const i64 {
     switch (axis) {
-      case Axis::AMPL:  return static_cast<i64>(amplitude());
       default:
       case Axis::FREQ:  return omega();
+      case Axis::AMPL:  return static_cast<i64>(amplitude());
       case Axis::PHAS:  return pnum(); } } };
   template <size_t Digits>
 class Indexer {
@@ -292,7 +292,7 @@ class Numeral {  //  https://en.m.wikipedia.org/w/index.php?title=Positional_not
     i64 sum{0};
     for(u8 idx{0}; idx!=numrl.size(); idx++) sum += operator[](idx) * power(Radix, idx);
     return sum; }
-  auto operator()(const Dir& d) -> void { switch(d) {
+  auto operator()(const Action& action) -> void { switch(action) {
     default:  break;
     case incr:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
                 operator()( sum ); } break;
@@ -305,18 +305,15 @@ class Numeral {  //  https://en.m.wikipedia.org/w/index.php?title=Positional_not
     for(u8 index{0}; index!=Digits; index++) {
       numrl.push_front(bn / power(Radix, Digits-1-index));
         bn %= power(Radix, Digits-1-index); } }
-  auto operator+(const i64& bn) -> decltype(*this) { operator()(operator()() + bn); return *this; }
-  auto operator-(const i64& bn) -> decltype(*this) { operator()(operator()() - bn); return *this; }
-    #ifdef DEBUG
-  auto pr() -> void {
-    for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
-    #endif
+  auto operator+(const i64& bn) -> decltype(*this) { operator()(operator()() + bn); return *this;}
+  auto operator-(const i64& bn) -> decltype(*this) { operator()(operator()() - bn); return *this;}
   auto size() -> const size_t { return numrl.size(); }
   auto disp( OLED& oled ) -> void {
-    for(size_t ix{}; size() != ix; ix++) oled.print(operator[](size()-1-ix));    oled.println();
-    for(size_t ix{}; size()-1-cursor() != ix; ix++) oled.print(' ');    oled.println('^'); } };
+    for(size_t ix{}; size() != ix; ix++) oled.print(operator[](size()-1-ix)); oled.println();
+    for(size_t ix{}; size()-1-cursor() != ix; ix++) oled.print(' ');          oled.println('^'); }};
 /* End Synthesis:: */ }
 void loop() __attribute__ ((noreturn));
+  //https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noreturn-function-attribute
 auto loop() -> void {                               // "And, away we go ..." Gleason.
   using namespace Hardware;
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
@@ -330,12 +327,12 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
   Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
-  Timer1.initialize(7654321UL);  Timer1.attachInterrupt(Hide);
-; using namespace Synthesis;                        // ... with it all on the stack. Me.
-  SpecifiedOverlay pll;
+  Timer1.initialize(7654321UL);  Timer1.attachInterrupt(Hide);  // oled and saver
+; using namespace Synthesis;
+  SpecifiedOverlay pll;             // Quantiy I::_end calls of set() are required, in any order.
     #ifdef DEBUG
-  Serial.begin(1000000L);// delay(1000L);
-    #endif // Quantiy I::_end calls of set() are required, in any order.
+    Serial.begin(1000000L);
+    #endif
   //                     I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
   pll( I::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
   pll( I::phAdj, OFF );                                                                    // (5)
@@ -376,22 +373,18 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Resolver resolver;
   pll.phAdj(OFF);
-  Numeral<1> pwr{plus5};
-  Numeral<10> frequency{bottom};  for(auto x{4}; x; --x) frequency(left);
-  Numeral<3> angle{1};
-  Axis axis{ Axis::FREQ };
+  Numeral<1> pwr{minus4};  Numeral<10> freq{bottom};  Numeral<3> angle{1};
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
-  EMEM ee; while(!ee.begin());
-  struct { i64 w,x,y; bool z; } flash{};
-  ee.readObject(0, flash);
-  pwr(flash.w); frequency(flash.x); angle(flash.y); rf(flash.z);
-  ASS ass; bool hasAss{ ass.begin() }; if(hasAss) ass.pinModeBulk(pinMask, INPUT_PULLUP);
-  u32 action{};
+  struct Persistence { i64 pwr, freq, angle; bool xmit; Axis axis; };
+  Persistence flash{ pwr(), freq(), angle(), rf(), Axis::FREQ };  // if no emem, use init values
+  EMEM emem; bool hasEmem{ emem.begin() }; if( hasEmem ) emem.readObject(0, flash);
+  pwr(flash.pwr); freq(flash.freq); angle(flash.angle); rf(flash.xmit);
+  ASS ass; bool hasAss{ ass.begin() }; if(hasAss) ass.pinModeBulk(btnMask, INPUT_PULLUP);
 ; for( bool update{1}; ON; ) {
     if( blank ) { Timer1.stop(); oled.clear(); blank = 0; }
-    if( update ) {
-      pwr(constrain(pwr(),minus4,plus5)); pll(resolver(pwr(), Axis::AMPL));
-      frequency(constrain(frequency(),MIN_FREQ,MAX_FREQ)); pll(resolver(frequency(), Axis::FREQ));
+    if( update && !blank ) {
+      pwr(constrain(pwr(),minus4,plus5));         pll(resolver(pwr(), Axis::AMPL));
+      freq(constrain(freq(),MIN_FREQ,MAX_FREQ));  pll(resolver(freq(), Axis::FREQ));
       angle(constrain(angle(),1,pll().dnom-1)); pll(resolver(angle(), Axis::PHAS)).flush().lock();
       Timer1.start();
       oled.clear();
@@ -401,43 +394,48 @@ auto loop() -> void {                               // "And, away we go ..." Gle
       oled.setFont(X11fixed7x14); oled.setLetterSpacing(3);
       #endif
       if(rf()) oled.print("*"); else oled.print(" ");
-      switch(axis) {
-        case Axis::AMPL:  oled.println("Power"); pwr.disp(oled); break;
-        case Axis::FREQ:  oled.println("Frequency"); frequency.disp(oled); break;
-        case Axis::PHAS:  oled.println("Phase"); angle.disp(oled); break; }
+      switch(flash.axis) {
+        default:
+        case Axis::FREQ:  oled.println("Frequency");  freq.disp(oled); break;
+        case Axis::AMPL:  oled.println("Power");      pwr.disp(oled); break;
+        case Axis::PHAS:  oled.println("Phase");      angle.disp(oled); break; }
       #ifdef DEBUG
         oled.setFont(font5x7);  oled.setLetterSpacing(1);
         oled.print("rpwr: ");   oled.print(pll().rpwr); oled.print(" rdiv: "); oled.print(pll().rdiv);
         oled.print("\ndnom: "); oled.print(pll().dnom); oled.print(" prop: "); oled.print(pll().prop);
         oled.print("\nwhol: "); oled.print(pll().whol); oled.print(" numr: "); oled.print(pll().numr);
-        //frequency.pr();
         pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
         pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
         pr('\n');
       #endif
       update = blank = 0; }
-    if( hasAss ) { action = btns(ass);
-      if(action) { update = 1; switch(action) { default: break;
-        case  shft: while( shft == btns(ass) ); break;
-        case  incr: switch(axis) {
-                      case Axis::AMPL:  pwr(incr); break;
-                      case Axis::FREQ:  frequency(incr); break;
-                      case Axis::PHAS:  angle(incr); break; } while( btns(ass) ); break;
-        case  save: flash.w = pwr(); flash.x = frequency(); flash.y = angle(); flash.z = rf();
-                    ee.writeObject(0, flash); while( btns(ass) ); break;
-        case  left: switch(axis) {
-                      case Axis::AMPL:  pwr(left); break;
-                      case Axis::FREQ:  frequency(left); break;
-                      case Axis::PHAS:  angle(left); break; } while( btns(ass) ); break;
-        case  prev: --axis; while( btns(ass) ); break;
-        case  decr: switch(axis) {
-                      case Axis::AMPL:  if(pwr()) pwr(decr); break;
-                      case Axis::FREQ:  frequency(decr); break;
-                      case Axis::PHAS:  if(1 < angle()) angle(decr); break; } while(btns(ass)); break;
-        case   ptt: rf( !rf() ); while( btns(ass) ); break;
-        case  rght: switch(axis) {
-                      case Axis::AMPL:  pwr(rght); break;
-                      case Axis::FREQ:  frequency(rght); break;
-                      case Axis::PHAS:  angle(rght); break; } while( btns(ass) ); break;
-        case  next: ++axis; while( btns(ass) ); break; } } }
-    delay(33);  } } // kd9fww
+    if( hasAss ) { auto action{ btns(ass) }; if(action) { update = 1; switch(action) {
+      default:    break;
+      case  shft: while( shft == btns(ass) ); break;
+      case  incr: switch(flash.axis) {
+                    default:
+                    case Axis::FREQ:  freq(incr); break;
+                    case Axis::AMPL:  pwr(incr); break;
+                    case Axis::PHAS:  angle(incr); break; } while( btns(ass) ); break;
+      case  save: flash.pwr = pwr(); flash.freq = freq(); flash.angle = angle();
+                  flash.xmit = rf(); if( hasEmem ) emem.writeObject(0, flash);
+                  while( btns(ass) ); break;
+      case  left: switch(flash.axis) {
+                    default:
+                    case Axis::FREQ:  freq(left); break;
+                    case Axis::AMPL:  pwr(left); break;
+                    case Axis::PHAS:  angle(left); break; } while( btns(ass) ); break;
+      case  prev: --flash.axis; while( btns(ass) ); break;
+      case  decr: switch(flash.axis) {
+                    default:
+                    case Axis::FREQ:  freq(decr); break;
+                    case Axis::AMPL:  if(pwr()) pwr(decr); break;
+                    case Axis::PHAS:  if(1 < angle()) angle(decr); break; } while(btns(ass)); break;
+      case  xmit: rf( !rf() ); while( btns(ass) ); break;
+      case  rght: switch(flash.axis) {
+                    default:
+                    case Axis::FREQ:  freq(rght); break;
+                    case Axis::AMPL:  pwr(rght); break;
+                    case Axis::PHAS:  angle(rght); break; } while( btns(ass) ); break;
+      case  next: ++flash.axis; while( btns(ass) ); break; } } }
+    delay(33); } } // kd9fww
