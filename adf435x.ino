@@ -34,7 +34,9 @@ namespace Hardware {
   constexpr struct CTRL { PIN le, ld; } ctrl[] = { [A] = { LE_A, LD_A } };/*
     , [B] = { LE_B, LD_B } };*/
   static_assert(UNIT::_end == sizeof(ctrl) / sizeof(ctrl[0]));
-  auto btns(ASS& ass, const u32& msk=0x3f) -> const u32 { return msk ^ ass.digitalReadBulk(msk); }
+  constexpr auto pinMask{ 0x3FUL };
+  auto btns(ASS& ass, const u32& msk = pinMask) -> const u32 {
+    return msk ^ ass.digitalReadBulk(msk); }
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
   const auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   const auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
@@ -59,8 +61,8 @@ namespace Hardware {
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
-  enum  Dir : u8 { shft = 2, up  = shft << 1, sav = shft+up, left = up << 1, prev = shft+left,
-                    dn = left << 1, ptt = shft+dn, rght = dn << 1, next = shft+rght };
+  enum Dir : u8 { shft = 2, incr = shft<<1, save = shft+incr, left = incr<<1, prev = shft+left,
+                  decr = left<<1, ptt = shft+decr, rght = decr<<1, next = shft+rght };
   constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
@@ -113,6 +115,7 @@ enum Identifier : u8 {  // Human readable register 'field' identifiers.
     _end
   };  using I = Identifier;
 constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] {  /*
+  //  https://gcc.gnu.org/onlinedocs/gcc/Designated-Inits.html
   Human deduced via inspection.
     OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
     RANK:                 RANK = OVERLAYED_REGISTERS - 1 - Datasheet Register Number.
@@ -291,9 +294,9 @@ class Numeral {  //  https://en.m.wikipedia.org/w/index.php?title=Positional_not
     return sum; }
   auto operator()(const Dir& d) -> void { switch(d) {
     default:  break;
-    case up:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
+    case incr:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
                 operator()( sum ); } break;
-    case dn:  { i64 sum{ operator()() }; sum -= power(Radix, cursor());
+    case decr:  { i64 sum{ operator()() }; sum -= power(Radix, cursor());
                 operator()( sum ); } break;
     case left: ++cursor; break;
     case rght: --cursor; break; } }
@@ -313,6 +316,7 @@ class Numeral {  //  https://en.m.wikipedia.org/w/index.php?title=Positional_not
     for(size_t ix{}; size() != ix; ix++) oled.print(operator[](size()-1-ix));    oled.println();
     for(size_t ix{}; size()-1-cursor() != ix; ix++) oled.print(' ');    oled.println('^'); } };
 /* End Synthesis:: */ }
+void loop() __attribute__ ((noreturn));
 auto loop() -> void {                               // "And, away we go ..." Gleason.
   using namespace Hardware;
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
@@ -326,7 +330,7 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
   Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
-  Timer1.initialize(7654321UL);  Timer1.attachInterrupt(HW::Hide);
+  Timer1.initialize(7654321UL);  Timer1.attachInterrupt(Hide);
 ; using namespace Synthesis;                        // ... with it all on the stack. Me.
   SpecifiedOverlay pll;
     #ifdef DEBUG
@@ -378,14 +382,13 @@ auto loop() -> void {                               // "And, away we go ..." Gle
   Axis axis{ Axis::FREQ };
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
   EMEM ee; while(!ee.begin());
-  struct { i64 p,f,a; bool t; } flash;
+  struct { i64 w,x,y; bool z; } flash{};
   ee.readObject(0, flash);
-  pwr(flash.p); frequency(flash.f); angle(flash.a); HW::rf(flash.t);
-  ASS ass;
-  bool hasAss{ ass.begin() };
-  if(hasAss)  ass.pinModeBulk(0x3F, INPUT_PULLUP);
-; for( bool update{1}; hasAss; ) {
-    if(HW::blank) { Timer1.stop(); oled.clear(); HW::blank = 0; }
+  pwr(flash.w); frequency(flash.x); angle(flash.y); rf(flash.z);
+  ASS ass; bool hasAss{ ass.begin() }; if(hasAss) ass.pinModeBulk(pinMask, INPUT_PULLUP);
+  u32 action{};
+; for( bool update{1}; ON; ) {
+    if( blank ) { Timer1.stop(); oled.clear(); blank = 0; }
     if( update ) {
       pwr(constrain(pwr(),minus4,plus5)); pll(resolver(pwr(), Axis::AMPL));
       frequency(constrain(frequency(),MIN_FREQ,MAX_FREQ)); pll(resolver(frequency(), Axis::FREQ));
@@ -397,7 +400,7 @@ auto loop() -> void {                               // "And, away we go ..." Gle
       #else
       oled.setFont(X11fixed7x14); oled.setLetterSpacing(3);
       #endif
-      if(HW::rf()) oled.print("*"); else oled.print(" ");
+      if(rf()) oled.print("*"); else oled.print(" ");
       switch(axis) {
         case Axis::AMPL:  oled.println("Power"); pwr.disp(oled); break;
         case Axis::FREQ:  oled.println("Frequency"); frequency.disp(oled); break;
@@ -412,29 +415,29 @@ auto loop() -> void {                               // "And, away we go ..." Gle
         pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
         pr('\n');
       #endif
-      update = HW::blank = 0; }
-    auto action{ btns(ass) };
-    if(action) { update = 1; switch(action) { default: break;
-      case shft:  while( shft == btns(ass) ); break;
-      case up:    switch(axis) {
-                    case Axis::AMPL:  pwr(up); break;
-                    case Axis::FREQ:  frequency(up); break;
-                    case Axis::PHAS:  angle(up); break; } while( btns(ass) ); break;
-      case sav:   flash.p = pwr(); flash.f = frequency(); flash.a = angle(); flash.t = HW::rf();
-                  ee.writeObject(0, flash); while( btns(ass) ); break;
-      case left:  switch(axis) {
-                    case Axis::AMPL:  pwr(left); break;
-                    case Axis::FREQ:  frequency(left); break;
-                    case Axis::PHAS:  angle(left); break; } while( btns(ass) ); break;
-      case prev:  --axis; while( btns(ass) ); break;
-      case dn:    switch(axis) {
-                    case Axis::AMPL:  if(pwr()) pwr(dn); break;
-                    case Axis::FREQ:  frequency(dn); break;
-                    case Axis::PHAS:  if(1 < angle()) angle(dn); break; } while(btns(ass)); break;
-      case ptt:   HW::rf( !HW::rf() ); while( btns(ass) ); break;
-      case rght:  switch(axis) {
-                    case Axis::AMPL:  pwr(rght); break;
-                    case Axis::FREQ:  frequency(rght); break;
-                    case Axis::PHAS:  angle(rght); break; } while( btns(ass) ); break;
-      case next:  ++axis; while( btns(ass) ); break; } }
+      update = blank = 0; }
+    if( hasAss ) { action = btns(ass);
+      if(action) { update = 1; switch(action) { default: break;
+        case  shft: while( shft == btns(ass) ); break;
+        case  incr: switch(axis) {
+                      case Axis::AMPL:  pwr(incr); break;
+                      case Axis::FREQ:  frequency(incr); break;
+                      case Axis::PHAS:  angle(incr); break; } while( btns(ass) ); break;
+        case  save: flash.w = pwr(); flash.x = frequency(); flash.y = angle(); flash.z = rf();
+                    ee.writeObject(0, flash); while( btns(ass) ); break;
+        case  left: switch(axis) {
+                      case Axis::AMPL:  pwr(left); break;
+                      case Axis::FREQ:  frequency(left); break;
+                      case Axis::PHAS:  angle(left); break; } while( btns(ass) ); break;
+        case  prev: --axis; while( btns(ass) ); break;
+        case  decr: switch(axis) {
+                      case Axis::AMPL:  if(pwr()) pwr(decr); break;
+                      case Axis::FREQ:  frequency(decr); break;
+                      case Axis::PHAS:  if(1 < angle()) angle(decr); break; } while(btns(ass)); break;
+        case   ptt: rf( !rf() ); while( btns(ass) ); break;
+        case  rght: switch(axis) {
+                      case Axis::AMPL:  pwr(rght); break;
+                      case Axis::FREQ:  frequency(rght); break;
+                      case Axis::PHAS:  angle(rght); break; } while( btns(ass) ); break;
+        case  next: ++axis; while( btns(ass) ); break; } } }
     delay(33);  } } // kd9fww

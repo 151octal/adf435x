@@ -6,8 +6,8 @@
   https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
   US$30, for an assembled pll module from a major online discount household retail store.
   As host for ATMEGA328, the Adafruit 'metro mini' is used which has i2c connectoring and is
-  configured for 3V operation - the Nano product is 5V. Beyond saying the ADF435x logic is 3V,
-  I assume that you know what you're doing - dont blame me if you BRICK yours.
+  configurable for 3V operation - the Nano product is 5V. Beyond stating that the ADF435x logic
+  level is 3V, I assume that you know what you're doing - dont blame me if you BRICK yours.
   ------------------------------------------------------------------------------------------------
   This code is a single pll version only. A second pll would be accommodated with {le, ld} on
   {D9, D8}, respectively. And sharing their {REF, 5v, clk, dat, pdr, GND} signals. This scheme
