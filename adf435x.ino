@@ -38,14 +38,14 @@ namespace Hardware {
   const auto btns = [](ASS& ass, const u32& msk = btnMask) {
     return msk ^ ass.digitalReadBulk(msk); };
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
-  const auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
-  const auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
+  auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
+  auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
   const auto tx = [](const PIN& le, void *pByte, int nByte) {
     auto p = static_cast<u8*>(pByte) + nByte;       // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      /* Data is latched on the rising edge. */
-  volatile bool blank{ 0 };                           // oled timeout result
+  volatile bool blank{ 0 };
   void Hide(void) { blank = 1; }
 } namespace HW = Hardware; namespace Synthesis {
  enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
@@ -402,7 +402,7 @@ auto loop() -> void {               // "And, away we go ..." Gleason.
       if(rf()) oled.print("*"); else oled.print(" ");
       switch(flash.axis) {
         default:
-        case Axis::PARK:  oled.println("Park");       break;
+        case Axis::PARK:  oled.println(" Hold");      // fall thru
         case Axis::FREQ:  oled.println("Frequency");  Freq.disp(oled); break;
         case Axis::AMPL:  oled.println("Power");      Pwr.disp(oled); break;
         case Axis::PHAS:  oled.println("Phase");      Angle.disp(oled); break; }
