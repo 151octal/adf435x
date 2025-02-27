@@ -1,4 +1,4 @@
-/*  ©2024 kd9fww. ADF435x stand alone using ATMEGA328 hardware SPI (in ~500 lines, ~28k mem).
+/*  ©kd9fww. 2024, 2025.  ADF435x using ATMEGA328 hardware SPI (in ~500 lines, ~27k mem).
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source code.
     https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
@@ -12,7 +12,6 @@
   #include <SPI.h>
   #include <TimerOne.h>
   #include <Wire.h>
-    auto setup() -> void {}
 ; using i64 = long long;
   using ASS = Adafruit_seesaw;
   using DBL = double;
@@ -91,7 +90,8 @@ namespace Hardware {
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
   static_assert((MAX_PFD >= PFD));
-enum Identifier : u8 {  // Human readable register 'field' identifiers.
+enum Identifier : u8 {
+    // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
     fraction,     integer,      modulus,
     phase,        prescaler,    phAdj,
@@ -132,7 +132,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   [I::rfDivSelect] = {1, 20, 3},  [I::rfFBselect] = {1, 23, 1},   [I::ledMode] = {0, 22, 2} };
   static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
-  constexpr State INIT{ dBm::minus4, 0, 1, 0, 0, 1 };
+  constexpr State INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
   /* ©2024 kd9fww */
 class SpecifiedOverlay {
   private:
@@ -275,8 +275,8 @@ class Indexer {
   auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
   auto operator--(int) -> decltype(*this) { return operator--(); } };
   template <size_t Digits, size_t Radix = 10>
-class Numeral {  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
-  private:
+class Numeral {
+  private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
   public:
   Indexer<Digits> cursor;
@@ -309,10 +309,10 @@ class Numeral {  //  https://en.m.wikipedia.org/w/index.php?title=Positional_not
   auto pr() -> void {
     for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
   auto size() -> const size_t { return numrl.size(); } };
-/* End Synthesis:: */ }
-void loop() __attribute__ ((noreturn));
+  /* End Synthesis:: */ }
+void setup() __attribute__ ((noreturn));
   //https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noreturn-function-attribute
-auto loop() -> void {               // "And, away we go ..." Gleason.
+auto setup() -> void {
   using namespace Hardware;
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
   rf( OFF );
@@ -328,6 +328,7 @@ auto loop() -> void {               // "And, away we go ..." Gleason.
   Timer1.initialize(7654321UL);  Timer1.attachInterrupt(Hide);  // oled saver
   using namespace Synthesis;
   Serial.begin(1000000L);
+  OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
 ; SpecifiedOverlay pll;
                                     // Quantiy I::_end calls of set() are required, in any order.
   //                     I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
@@ -370,37 +371,40 @@ auto loop() -> void {               // "And, away we go ..." Gleason.
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Resolver resolver;
   pll.phAdj(OFF);
-  Numeral<8> Ref{25*MHz}; Numeral<1> Pwr{plus5}; Numeral<10> Freq{50*MHz}; Numeral<3> Angle{1};
-  for(auto ix{4}; ix; ix--) Freq(left); Ref(left);
-  OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
-  struct { i64 ref, pwr, freq, angle; bool dbg, xmit; Axis axis; } Blob {
-    Ref(), Pwr(), Freq(), Angle(), OFF, rf(), Axis::FREQ };  // if no xmem, use these init'd values
-  XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, Blob);
-  Ref(Blob.ref); Pwr(Blob.pwr); Freq(Blob.freq); Angle(Blob.angle); rf(Blob.xmit);
+  struct Panel {  Numeral<8> Ref; Numeral<1> Pwr; Numeral<10> Freq; Numeral<3> Angle;
+                  bool debug, xmit;
+                  Axis axis; };
+  struct Panel panel {  .Ref = OSC, .Pwr = minus4, .Freq = 50*MHz, .Angle = 1,
+                        .debug = OFF, .xmit = rf(), .axis = Axis::FREQ };
+  XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, panel);
+  rf(panel.xmit);
     // A_dafruit S_eeS_aw
   ASS ass; bool hasAss{ ass.begin() };
-  if(hasAss) ass.pinModeBulk(btnMask, INPUT_PULLUP); else rf(ON);   // impotence prophylaxis
+  if(hasAss) ass.pinModeBulk(btnMask, INPUT_PULLUP); else rf(ON);
 ; for( bool update{ON}; ON; delay(66) ) {
     if( blank ) { Timer1.stop(); oled.clear(); blank = 0; }
     if( update && !blank ) {
-      Pwr(constrain(Pwr(),minus4,plus5));         pll(resolver(Pwr(), Axis::AMPL));
-      resolver.pfd(Ref());
-      Freq(constrain(Freq(),MIN_FREQ,MAX_FREQ));  pll(resolver(Freq(), Axis::FREQ));
-      Angle(constrain(Angle(),1,pll().dnom-1));   pll(resolver(Angle(), Axis::PHAS));
+      panel.Pwr(constrain(panel.Pwr(), minus4, plus5));             // constrain() is a macro
+      pll(resolver(panel.Pwr(), Axis::AMPL));
+      resolver.pfd(panel.Ref());
+      panel.Freq(constrain(panel.Freq(), MIN_FREQ, MAX_FREQ));
+      pll(resolver(panel.Freq(), Axis::FREQ));
+      panel.Angle(constrain(panel.Angle() ,1, pll().dnom-1));
+      pll(resolver(panel.Angle(), Axis::PHAS));
       pll.flush().lock();
       oled.clear();
       Timer1.start();
-      if(Blob.dbg)  { oled.setFont(font5x7); oled.setLetterSpacing(1); }
-      else          { oled.setFont(X11fixed7x14); oled.setLetterSpacing(3); }
+      if(panel.debug) { oled.setFont(font5x7); oled.setLetterSpacing(1); }
+      else            { oled.setFont(X11fixed7x14); oled.setLetterSpacing(3); }
       if(rf()) oled.print("*"); else oled.print(" ");
-      switch(Blob.axis) {
+      switch(panel.axis) {
         default:
-        case Axis::HOLD:  oled.println(" Hold");      // fall thru
-        case Axis::FREQ:  oled.println("Frequency");  Freq.disp(oled);  break;
-        case Axis::AMPL:  oled.println("Power");      Pwr.disp(oled);   break;
-        case Axis::PHAS:  oled.println("Phase");      Angle.disp(oled); break;
-        case Axis::REF:   oled.println("RefOsc");     Ref.disp(oled);   break; }
-      if(Blob.dbg) {
+        case Axis::HOLD:  oled.println(" Hold");      break;
+        case Axis::FREQ:  oled.println("Frequency");  panel.Freq.disp(oled);  break;
+        case Axis::AMPL:  oled.println("Power");      panel.Pwr.disp(oled);   break;
+        case Axis::PHAS:  oled.println("Phase");      panel.Angle.disp(oled); break;
+        case Axis::REF:   oled.println("RefOsc");     panel.Ref.disp(oled);   break; }
+      if(panel.debug) {
         oled.print("rpwr: ");   oled.print(pll().rpwr);
         oled.print(" rdiv: ");  oled.print(pll().rdiv);
         oled.print("\ndnom: "); oled.print(pll().dnom);
@@ -408,51 +412,51 @@ auto loop() -> void {               // "And, away we go ..." Gleason.
         oled.print("\nwhol: "); oled.print(pll().whol);
         oled.print(" numr: ");  oled.print(pll().numr);
         oled.print("\n pfd: "); oled.print(resolver.pfd());
-        switch(Blob.axis) {
-          default:
-          case Axis::HOLD:
-          case Axis::FREQ:  Freq.pr();  break;
-          case Axis::AMPL:  Pwr.pr();   break;
-          case Axis::PHAS:  Angle.pr(); break;
-          case Axis::REF:   Ref.pr();   break; }
         pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
         pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
-        pr("pfd:"); Serial.println(resolver.pfd()); }
+        pr("pfd:"); Serial.print(resolver.pfd()); pr(' ');
+        switch(panel.axis) {
+          default:
+          case Axis::HOLD:
+          case Axis::FREQ:  panel.Freq.pr();  break;
+          case Axis::AMPL:  panel.Pwr.pr();   break;
+          case Axis::PHAS:  panel.Angle.pr(); break;
+          case Axis::REF:   panel.Ref.pr();   break; } pr('\n'); }
       update = blank = 0; }
     if( hasAss ) { auto action{ btns(ass) }; if(action) { update = 1; switch(action) {
       default:   break;
       case shft: while( shft == btns(ass) ); break;
-      case incr: switch(Blob.axis) {
+      case incr: switch(panel.axis) {
                     default:
                     case Axis::HOLD:  break;
-                    case Axis::FREQ:  Freq(incr);   break;
-                    case Axis::AMPL:  Pwr(incr);    break;
-                    case Axis::PHAS:  Angle(incr);  break;
-                    case Axis::REF:   Ref(incr);    break; } while( btns(ass) ); break;
-      case save: Blob.ref = Ref(); Blob.pwr = Pwr(); Blob.freq = Freq();
-                 Blob.angle = Angle(); Blob.xmit = rf();
-                 if( hasXmem ) xmem.writeObject(0, Blob); while( btns(ass) ); break;
-      case left: switch(Blob.axis) {
+                    case Axis::FREQ:  panel.Freq(incr);   break;
+                    case Axis::AMPL:  panel.Pwr(incr);    break;
+                    case Axis::PHAS:  panel.Angle(incr);  break;
+                    case Axis::REF:   if(panel.debug) panel.Ref(incr); break; }
+                  while( btns(ass) ); break;
+      case save: panel.xmit = rf(); if(hasXmem) xmem.writeObject(0,panel); while(btns(ass)); break;
+      case left: switch(panel.axis) {
                     default:
                     case Axis::HOLD:  break;
-                    case Axis::FREQ:  Freq(left);   break;
-                    case Axis::AMPL:  Pwr(left);    break;
-                    case Axis::PHAS:  Angle(left);  break;
-                    case Axis::REF:   Ref(left);    break; } while( btns(ass) ); break;
-      case prev: ++Blob.axis; while( btns(ass) ); break;
-      case decr: switch(Blob.axis) {
+                    case Axis::FREQ:  panel.Freq(left);   break;
+                    case Axis::AMPL:  panel.Pwr(left);    break;
+                    case Axis::PHAS:  panel.Angle(left);  break;
+                    case Axis::REF:   panel.Ref(left);    break; } while( btns(ass) ); break;
+      case prev: ++panel.axis; while( btns(ass) ); break;
+      case decr: switch(panel.axis) {
                     default:
                     case Axis::HOLD:  break;
-                    case Axis::FREQ:  Freq(decr); break;
-                    case Axis::AMPL:  if(Pwr()) Pwr(decr); break;
-                    case Axis::PHAS:  if(1<Angle()) Angle(decr); break;
-                    case Axis::REF:   if(0<Ref()) Ref(decr); break; } while(btns(ass)); break;
+                    case Axis::FREQ:  panel.Freq(decr); break;
+                    case Axis::AMPL:  if(panel.Pwr()) panel.Pwr(decr); break;
+                    case Axis::PHAS:  if(1<panel.Angle()) panel.Angle(decr); break;
+                    case Axis::REF:   if(panel.debug) panel.Ref(decr); break; }
+                  while(btns(ass)); break;
       case xmit: rf( !rf() ); while( btns(ass) ); break;
-      case rght: switch(Blob.axis) {
+      case rght: switch(panel.axis) {
                     default:
                     case Axis::HOLD:  break;
-                    case Axis::FREQ:  Freq(rght);   break;
-                    case Axis::AMPL:  Pwr(rght);    break;
-                    case Axis::PHAS:  Angle(rght);  break;
-                    case Axis::REF:   Ref(rght);    break; } while( btns(ass) ); break;
-      case next: Blob.dbg = !Blob.dbg; while( btns(ass) ); break; } } } } } // kd9fww
+                    case Axis::FREQ:  panel.Freq(rght);   break;
+                    case Axis::AMPL:  panel.Pwr(rght);    break;
+                    case Axis::PHAS:  panel.Angle(rght);  break;
+                    case Axis::REF:   panel.Ref(rght);    break; } while( btns(ass) ); break;
+      case next: panel.debug = !panel.debug; while( btns(ass) ); break; } } } } } void loop() {}

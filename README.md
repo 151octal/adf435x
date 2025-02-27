@@ -12,11 +12,11 @@ logic level is 3V, I assume that you know what you're doing - dont blame me if y
 Wire-wrap, limit to 5cm, and common mode choke the aggregate of (qty:8) wires connecting the
 ADF435x module. Configure the metro_mini for 3V. Solder a wrap pin to the center pin of the
 coaxial power connector of the ADF435x module to supply it from the metro_mini on-board 5v
-regulated output. Tack it on the connector rear and oriented it parallel to the module. Then
-dont use the coaxial connector. The total supply current is ~0.15A. Supply the metro_mini any
-way you like. USB alone is adequate. For Faraday enclosures, utilize a Z5U or X7R dielectric
-capacitor for an AC short from GND (5V return) to earth ground, thereby eliminating the creation
-of any DC ground loop(s).
+regulated output. Tack it on the connector rear and oriented it parallel to the pcb. This renders
+the coaxial connector redundant. The total supply current is ~0.15A. Supply the system via the 
+metro_mini any way you like - USB alone is adequate. For Faraday enclosures, utilize a Z5U or X7R
+dielectric capacitor for an AC short from GND (5V return) to earth ground, thereby eliminating
+the creation of any DC ground loop(s).
 ------------------------------------------------------------------------------------------------
           ADF435x module pin header     
               component side          metro_mini 5V---wire---ADF435x module (coaxial center pin)
@@ -29,19 +29,27 @@ of any DC ground loop(s).
               |---------------|
   Leave  0  open to provide [[sleeve]] jumper to  8  Forces a hard disable when present.
 ------------------------------------------------------------------------------------------------
-Accomodated are 1) optional i2c serial eeprom for overide of defaults with saved settings at
+Accomodated are 1) optional i2c serial eemem for overide of defaults with saved settings at
 startup, 2) optional oled for displaying settings, and 3) optional momentary pushbuttons via an
 Adafruit i2c SeeSaw module for (optionally persitent) runtime settings modification. Ajustable
-are Power, Frequency, Phase, and Oscillator frequency, with a Hold feature which prevents
-unintended modification. Made availble are Pll model internal (state) values. Its big, but it
-handles big numbers with ease. The user interface (persistent settings, display, print) account
-for most of its size. Communication over SPI occurs at full speed.
+are Power, Frequency, Phase, and Oscillator frequency (calibration), with a Hold feature which
+prevents unShifted modification. Displayable are Pll model internal (state) values. Calibration
+is only permitted when these values are selected to be displayed. The runtime code size is large,
+but it handles per digit editable numbers of specified length with ease. The human interface
+(display, print, editable persistent settings) contributes the most to the code size.
+Communication over SPI occurs at full speed.
+--SeeSaw Buttons--------------------------------------------------------------------------------
+|                 |    UP: Increment at Cursor     SHFT+UP: Save                               |
+|       UP        |  LEFT: Cursor left           SHFT+LEFT: Next Axis                          |
+| LEFT SHFT RIGHT |    DN: Decrement at Cursor     SHFT+DN: Toggle RF                          |
+|       DN        | RIGHT: Cursor right         SHFT+RIGHT: Show internal state (RefOsc edit)  |
+|                 | 1) Press hold SHFT. 2) Press hold 2nd. 3) Release SHFT. 4) Release 2nd.    |
 ------------------------------------------------------------------------------------------------
 This code is a single pll version only. A second pll would be accommodated with {le, ld} on
 {D9, D8}, respectively. And sharing their {REF, 5v, clk, dat, pdr, GND} signals. This scheme
 does not preclude the possibilty of supporting two plls. Be aware that there exist ADF435x
-modules that do not have the REF signal brought out on (what is a dummy) SMA connector.
-That is, the REF connector is not connected.
+modules that do not have the REF signal brought out on (what is a dummy) connector. That is, the
+REF connector is not connected.
 ------------------------------------------------------------------------------------------------
 The LED (on D13) appears to be in contention with the default SPI clock line and is not easily
 open circuited. Look, "Let It Be." and "Fughet about it.", SPI will work regardless.
