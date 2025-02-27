@@ -326,9 +326,9 @@ auto setup() -> void {
   Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
   Timer1.initialize(7654321UL);  Timer1.attachInterrupt(Hide);  // oled saver
-  using namespace Synthesis;
   Serial.begin(1000000L);
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
+  using namespace Synthesis;
 ; SpecifiedOverlay pll;
                                     // Quantiy I::_end calls of set() are required, in any order.
   //                     I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
@@ -371,10 +371,10 @@ auto setup() -> void {
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Resolver resolver;
   pll.phAdj(OFF);
-  struct Panel {  Numeral<8> Ref; Numeral<1> Pwr; Numeral<10> Freq; Numeral<3> Angle;
+  struct Panel {  Numeral<8> Ref; Numeral<1> Power; Numeral<10> Freq; Numeral<3> Angle;
                   bool debug, xmit;
                   Axis axis; };
-  struct Panel panel {  .Ref = OSC, .Pwr = minus4, .Freq = 50*MHz, .Angle = 1,
+  struct Panel panel {  .Ref = OSC, .Power = minus4, .Freq = 50*MHz, .Angle = 1,
                         .debug = OFF, .xmit = rf(), .axis = Axis::FREQ };
   XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, panel);
   rf(panel.xmit);
@@ -384,8 +384,8 @@ auto setup() -> void {
 ; for( bool update{ON}; ON; delay(66) ) {
     if( blank ) { Timer1.stop(); oled.clear(); blank = 0; }
     if( update && !blank ) {
-      panel.Pwr(constrain(panel.Pwr(), minus4, plus5));             // constrain() is a macro
-      pll(resolver(panel.Pwr(), Axis::AMPL));
+      panel.Power(constrain(panel.Power(), minus4, plus5));
+      pll(resolver(panel.Power(), Axis::AMPL));
       resolver.pfd(panel.Ref());
       panel.Freq(constrain(panel.Freq(), MIN_FREQ, MAX_FREQ));
       pll(resolver(panel.Freq(), Axis::FREQ));
@@ -401,7 +401,7 @@ auto setup() -> void {
         default:
         case Axis::HOLD:  oled.println(" Hold");      break;
         case Axis::FREQ:  oled.println("Frequency");  panel.Freq.disp(oled);  break;
-        case Axis::AMPL:  oled.println("Power");      panel.Pwr.disp(oled);   break;
+        case Axis::AMPL:  oled.println("Power");      panel.Power.disp(oled); break;
         case Axis::PHAS:  oled.println("Phase");      panel.Angle.disp(oled); break;
         case Axis::REF:   oled.println("RefOsc");     panel.Ref.disp(oled);   break; }
       if(panel.debug) {
@@ -419,7 +419,7 @@ auto setup() -> void {
           default:
           case Axis::HOLD:
           case Axis::FREQ:  panel.Freq.pr();  break;
-          case Axis::AMPL:  panel.Pwr.pr();   break;
+          case Axis::AMPL:  panel.Power.pr(); break;
           case Axis::PHAS:  panel.Angle.pr(); break;
           case Axis::REF:   panel.Ref.pr();   break; } pr('\n'); }
       update = blank = 0; }
@@ -430,7 +430,7 @@ auto setup() -> void {
                     default:
                     case Axis::HOLD:  break;
                     case Axis::FREQ:  panel.Freq(incr);   break;
-                    case Axis::AMPL:  panel.Pwr(incr);    break;
+                    case Axis::AMPL:  panel.Power(incr);  break;
                     case Axis::PHAS:  panel.Angle(incr);  break;
                     case Axis::REF:   if(panel.debug) panel.Ref(incr); break; }
                   while( btns(ass) ); break;
@@ -439,7 +439,7 @@ auto setup() -> void {
                     default:
                     case Axis::HOLD:  break;
                     case Axis::FREQ:  panel.Freq(left);   break;
-                    case Axis::AMPL:  panel.Pwr(left);    break;
+                    case Axis::AMPL:  panel.Power(left);  break;
                     case Axis::PHAS:  panel.Angle(left);  break;
                     case Axis::REF:   panel.Ref(left);    break; } while( btns(ass) ); break;
       case prev: ++panel.axis; while( btns(ass) ); break;
@@ -447,7 +447,7 @@ auto setup() -> void {
                     default:
                     case Axis::HOLD:  break;
                     case Axis::FREQ:  panel.Freq(decr); break;
-                    case Axis::AMPL:  if(panel.Pwr()) panel.Pwr(decr); break;
+                    case Axis::AMPL:  if(panel.Power()) panel.Power(decr); break;
                     case Axis::PHAS:  if(1<panel.Angle()) panel.Angle(decr); break;
                     case Axis::REF:   if(panel.debug) panel.Ref(decr); break; }
                   while(btns(ass)); break;
@@ -456,7 +456,7 @@ auto setup() -> void {
                     default:
                     case Axis::HOLD:  break;
                     case Axis::FREQ:  panel.Freq(rght);   break;
-                    case Axis::AMPL:  panel.Pwr(rght);    break;
+                    case Axis::AMPL:  panel.Power(rght);  break;
                     case Axis::PHAS:  panel.Angle(rght);  break;
                     case Axis::REF:   panel.Ref(rght);    break; } while( btns(ass) ); break;
       case next: panel.debug = !panel.debug; while( btns(ass) ); break; } } } } } void loop() {}
