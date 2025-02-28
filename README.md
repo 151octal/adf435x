@@ -33,17 +33,19 @@ Accomodated are 1) optional i2c serial eemem for overide of defaults with saved 
 startup, 2) optional oled for displaying settings, and 3) optional momentary pushbuttons via an
 Adafruit i2c SeeSaw module for (optionally persitent) runtime settings modification. Ajustable
 are Power, Frequency, Phase, and Oscillator frequency (calibration), with a Hold feature which
-prevents unShifted modification. Displayable are Pll model internal (state) values. Calibration
+prevents (unShifted) modification. Displayable are Pll model internal (state) values. Calibration
 is only permitted when these values are selected to be displayed. The runtime code size is large,
 but it handles per digit editable numbers of specified length with ease. The human interface
 (display, print, editable persistent settings) contributes the most to the code size.
-Communication over SPI occurs at full speed.
---SeeSaw Buttons--------------------------------------------------------------------------------
-|                 |    UP: Increment at Cursor     SHFT+UP: Save                               |
-|       UP        |  LEFT: Cursor left           SHFT+LEFT: Next Axis                          |
-| LEFT SHFT RIGHT |    DN: Decrement at Cursor     SHFT+DN: Toggle RF                          |
-|       DN        | RIGHT: Cursor right         SHFT+RIGHT: Show internal state (RefOsc edit)  |
-|                 | 1) Press hold SHFT. 2) Press hold 2nd. 3) Release SHFT. 4) Release 2nd.    |
+Communication over SPI occurs at full speed. The pll is updated at every recognized sequence:
+------------------------------------------------------------------------------------------------
+    1st (unShifted) Sequence: 1)Press 1st 2)Release 1st
+    2nd   (Shifted) Sequence: 1)Press hold SHFT 2)Press hold 2nd 3)Release SHFT 4)Release 2nd
+              |-- unShifted -------------------|--------Shifted---------------------------------
+      UP      |  UP: Increment digit at Cursor |  SHFT+UP: Save
+ LFT SHFT RGT | LFT: Move digit Cursor left    | SHFT+LFT: Next Axis
+      DN      |  DN: Decrement digit at Cursor |  SHFT+DN: Toggle RF
+              | RGT: Move digit Cursor right   | SHFT+RGT: Show internal state (RefOsc edit)
 ------------------------------------------------------------------------------------------------
 This code is a single pll version only. A second pll would be accommodated with {le, ld} on
 {D9, D8}, respectively. And sharing their {REF, 5v, clk, dat, pdr, GND} signals. This scheme
