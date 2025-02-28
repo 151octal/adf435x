@@ -37,7 +37,7 @@ namespace Hardware {
     return msk ^ ass.digitalReadBulk(msk); };
   const auto checkMem = [](void* vp, size_t length) {
     auto p = static_cast<u8*>(vp);
-    u8 sum{0}; while(length--) { sum += *(p++); sum %= 255; }
+    u16 sum{0}; while(length--) { sum += *(p++); sum %= 255; }
     return sum; };
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
@@ -285,7 +285,7 @@ class Numeral {
     std::deque<u8,Digits> numrl;
   public:
   Indexer<Digits> cursor;
-  Numeral(i64 bn) { operator()(bn); }
+  Numeral(i64 bn = 0) { operator()(bn); }
   virtual ~Numeral() {}
   auto disp( OLED& oled ) -> void {
     for(size_t ix{}; size() != ix; ix++) oled.print(operator[](size()-1-ix)); oled.println();
@@ -376,15 +376,14 @@ auto setup() -> void {
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Resolver resolver;
   pll.phAdj(OFF);
-  struct Panel {  Numeral<8> Ref{OSC}; Numeral<1> Power{minus4};
-                  Numeral<10> Freq{0}; Numeral<3> Angle{1};
-                  bool debug{OFF}, xmit{OFF}; Axis axis{Axis::FREQ}; };
-  struct Store { struct Panel pnl; u8 check; } recall{};
+  struct Panel { Numeral<8> Ref; Numeral<1> Power; Numeral<10> Freq; Numeral<3> Angle;
+                 bool debug, xmit; Axis axis; };
+  struct { Panel panel; u8 check; } recall;
   XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, recall);
-  struct Panel& panel{ recall.pnl };
-  if( recall.check != checkMem(&panel, sizeof(panel)) ) { // invalid xmem content
+  Panel& panel{ recall.panel };
+  if( checkMem(&panel, sizeof(panel)) != recall.check ) { // invalid xmem content, use these:
     panel.Ref(OSC); panel.Power(minus4); panel.Freq(34*MHz + 375*kHz); panel.Angle(1);
-    panel.debug = OFF; rf(panel.xmit = OFF), panel.axis = Axis::FREQ; };
+    panel.debug = OFF; panel.xmit = OFF, panel.axis = Axis::FREQ; };
   rf(panel.xmit);
   ASS ass; bool hasAss{ ass.begin() };      // A_dafruit S_eeS_aw
   if(hasAss) ass.pinModeBulk(btnMask, INPUT_PULLUP); else rf(ON);
