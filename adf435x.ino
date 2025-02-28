@@ -1,4 +1,4 @@
-/*  ©rwHelgeson 2024, 2025.  ADF435x using ATMEGA328 hardware SPI (in ~500 lines, ~28k mem).
+/*  ©rwHelgeson 2024, 2025.  ADF435x using ATMEGA328 hardware SPI (in ~500 lines, ~27k mem).
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source code.
     https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
@@ -38,7 +38,7 @@ namespace Hardware {
   const auto checkMem = [](void* vp, size_t length) {
     auto p = static_cast<u8*>(vp);
     u16 sum{0}; while(length--) { sum += *(p++); sum %= 255; }
-    return sum; };
+    return u8(sum); };
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
@@ -265,33 +265,30 @@ class Resolver {
   auto pfd(const i64& ref) -> void { pvtPFD = DBL(ref) * (1+DBLR) / (1+TGLR) / R_COUNT; } };
     /* ©rwHelgeson 2024, 2025. */
   template <size_t Digits>
-class Indexer {
+class Cursor {
   private:
-    size_t index;
+    size_t pstn;
   public:
-  Indexer(const size_t& ix = 0)                      // Constrain() is a macro. So, beware.
-    : index{ constrain(ix, 0, Digits-1) } {}
-  virtual ~Indexer() {}
-  auto operator()() -> decltype(index) { return index; }
-  auto operator()(u8 ix) -> decltype(index) { return index = constrain(ix, 0, Digits-1); }
-  auto operator++() -> decltype(*this) { if(Digits-1 < ++index) index = 0; return *this; }
-  auto operator++(int) -> decltype(*this) { return operator++(); }
-  auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
-  auto operator--(int) -> decltype(*this) { return operator--(); } };
-    /* ©rwHelgeson 2024, 2025. */
-  template <size_t Digits, size_t Radix = 10>
+  Cursor(const size_t& ix = 0)                      // Constrain() is a macro. So, beware.
+    : pstn{ constrain(ix, 0, Digits-1) } {}
+  virtual ~Cursor() {}
+  auto operator()() -> decltype(pstn) { return pstn; }
+  auto operator()(u8 ix) -> decltype(pstn) { return pstn = constrain(ix, 0, Digits-1); }
+  auto operator++() -> decltype(*this) { if(Digits-1 < ++pstn) pstn = 0; return *this; }
+  auto operator--() -> decltype(*this) { if(0 == pstn--) pstn = Digits-1; return *this; } };
+    template <size_t Digits, size_t Radix = 10>
 class Numeral {
   private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
+    Cursor<Digits> cursor;
   public:
-  Indexer<Digits> cursor;
   Numeral(i64 bn = 0) { operator()(bn); }
   virtual ~Numeral() {}
   auto disp( OLED& oled ) -> void {
     for(size_t ix{}; size() != ix; ix++) oled.print(operator[](size()-1-ix)); oled.println();
     for(size_t ix{}; size()-1-cursor() != ix; ix++) oled.print(' ');          oled.println('^'); }
-  auto operator[](const size_t& position) -> const u8 {
-    return numrl[ constrain(position, 0, Digits-1) ]; } 
+  auto operator[](const size_t& pstn) -> const u8 {
+    return numrl[ constrain(pstn, 0, Digits-1) ]; } 
   auto operator()() -> const i64 {
     i64 sum{0};
     for(u8 idx{0}; idx!=numrl.size(); idx++) sum += operator[](idx) * power(Radix, idx);
@@ -309,8 +306,6 @@ class Numeral {
     for(u8 index{0}; index!=Digits; index++) {
       numrl.push_front(bn / power(Radix, Digits-1-index));
         bn %= power(Radix, Digits-1-index); } }
-  auto operator+(const i64& bn) -> decltype(*this) { operator()(operator()() + bn); return *this;}
-  auto operator-(const i64& bn) -> decltype(*this) { operator()(operator()() - bn); return *this;}
   auto pr() -> void {
     for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(' '); }
   auto size() -> const size_t { return numrl.size(); } };
@@ -381,9 +376,9 @@ auto setup() -> void {
   struct { Panel panel; u8 check; } recall;
   XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, recall);
   Panel& panel{ recall.panel };
-  if( checkMem(&panel, sizeof(panel)) != recall.check ) { // invalid xmem content, use these:
-    panel.Ref(OSC); panel.Power(minus4); panel.Freq(34*MHz + 375*kHz); panel.Angle(1);
-    panel.debug = OFF; panel.xmit = OFF, panel.axis = Axis::FREQ; };
+  if( checkMem(&panel, sizeof(panel)) != recall.check ) { // recall override: set RefOsc edit mode
+    panel.Ref(OSC); panel.Power(minus4); panel.Freq(50*MHz); panel.Angle(1);
+    panel.debug = ON; panel.xmit = ON, panel.axis = Axis::REF; };
   rf(panel.xmit);
   ASS ass; bool hasAss{ ass.begin() };      // A_dafruit S_eeS_aw
   if(hasAss) ass.pinModeBulk(btnMask, INPUT_PULLUP); else rf(ON);
@@ -467,4 +462,4 @@ auto setup() -> void {
                     case Axis::AMPL:  panel.Power(rght);  break;
                     case Axis::PHAS:  panel.Angle(rght);  break;
                     case Axis::REF:   panel.Ref(rght);    break; } while( btns(ass) ); break;
-      case next: panel.debug = !panel.debug; while( btns(ass) ); break; } } } } } void loop() {}
+      case next:  panel.debug = !panel.debug; while( btns(ass) ); break; } } } } } void loop() {}
