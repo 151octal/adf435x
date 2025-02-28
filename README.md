@@ -36,7 +36,9 @@ are Power, Frequency, Phase, and Oscillator frequency (calibration), with a Hold
 prevents (unShifted) modification. Displayable are Pll model internal (state) values. Calibration
 is only permitted when these values are selected to be displayed. The runtime code size is large,
 but it handles per digit editable numbers of specified length with ease. The human interface
-(display, print, editable persistent settings) contributes the most to the code size.
+elements (display, print, editable persistent settings) sum to more than half of the code size.
+The least impact button action change would be to drop the Toggle RF feature and implement
+something else. Also possible are the (unimplemented) sum of adjacent buttons such as LFT+UP.
 Communication over SPI occurs at full speed. The pll is updated at every recognized sequence:
 ------------------------------------------------------------------------------------------------
     1st (unShifted) Sequence: 1)Press 1st 2)Release 1st
