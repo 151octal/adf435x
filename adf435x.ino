@@ -1,4 +1,4 @@
-/*  ©kd9fww. 2024, 2025.  ADF435x using ATMEGA328 hardware SPI (in ~500 lines, ~27k mem).
+/*  ©rwHelgeson 2024, 2025.  ADF435x using ATMEGA328 hardware SPI (in ~500 lines, ~28k mem).
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source code.
     https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
@@ -35,6 +35,10 @@ namespace Hardware {
   constexpr auto btnMask{ 0x3FUL };
   const auto btns = [](ASS& ass, const u32& msk = btnMask) {
     return msk ^ ass.digitalReadBulk(msk); };
+  const auto checkMem = [](void* vp, size_t length) {
+    auto p = static_cast<u8*>(vp);
+    u8 sum{0}; while(length--) { sum += *(p++); sum %= 255; }
+    return sum; };
   const auto hardWait = [](const PIN& pin) { while( !digitalRead( static_cast<u8>(pin) )); };
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
@@ -133,11 +137,11 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
   constexpr State INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
-  /* ©2024 kd9fww */
+  /* ©rwHelgeson 2024, 2025. */
 class SpecifiedOverlay {
   private:
     HW::PIN le{ HW::ctrl[HW::UNIT::A].le }, ld{ HW::ctrl[HW::UNIT::A].ld };
-    NoiseSpurMode nsMode = lowNoise;  // sloppy afterthough
+    NoiseSpurMode nsMode = lowNoise;  // sloppy afterthought
     static const LayoutSpecification* const layoutSpec;
     State store{ INIT };
     struct Overlay {
@@ -214,7 +218,7 @@ class SpecifiedOverlay {
     // Wrapper for opertor()( loci )
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
-    /* ©2024 kd9fww */
+  /* ©rwHelgeson 2024, 2025. */
 class Resolver {
   // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
   private:
@@ -258,8 +262,8 @@ class Resolver {
       case Axis::AMPL:  return static_cast<i64>(amplitude());
       case Axis::PHAS:  return pnum(); } }
   auto pfd() -> const DBL { return pvtPFD; }
-  auto pfd(const i64& ref) -> void { pvtPFD = DBL(ref) * (1+DBLR) / (1+TGLR) / R_COUNT; }
-   };
+  auto pfd(const i64& ref) -> void { pvtPFD = DBL(ref) * (1+DBLR) / (1+TGLR) / R_COUNT; } };
+    /* ©rwHelgeson 2024, 2025. */
   template <size_t Digits>
 class Indexer {
   private:
@@ -274,6 +278,7 @@ class Indexer {
   auto operator++(int) -> decltype(*this) { return operator++(); }
   auto operator--() -> decltype(*this) { if(0 == index--) index = Digits-1; return *this; }
   auto operator--(int) -> decltype(*this) { return operator--(); } };
+    /* ©rwHelgeson 2024, 2025. */
   template <size_t Digits, size_t Radix = 10>
 class Numeral {
   private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
@@ -371,15 +376,17 @@ auto setup() -> void {
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
 ; Resolver resolver;
   pll.phAdj(OFF);
-  struct Panel {  Numeral<8> Ref; Numeral<1> Power; Numeral<10> Freq; Numeral<3> Angle;
-                  bool debug, xmit;
-                  Axis axis; };
-  struct Panel panel {  .Ref = OSC, .Power = minus4, .Freq = 50*MHz, .Angle = 1,
-                        .debug = OFF, .xmit = rf(), .axis = Axis::FREQ };
-  XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, panel);
+  struct Panel {  Numeral<8> Ref{OSC}; Numeral<1> Power{minus4};
+                  Numeral<10> Freq{0}; Numeral<3> Angle{1};
+                  bool debug{OFF}, xmit{OFF}; Axis axis{Axis::FREQ}; };
+  struct Store { struct Panel pnl; u8 check; } recall{};
+  XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, recall);
+  struct Panel& panel{ recall.pnl };
+  if( recall.check != checkMem(&panel, sizeof(panel)) ) { // invalid xmem content
+    panel.Ref(OSC); panel.Power(minus4); panel.Freq(34*MHz + 375*kHz); panel.Angle(1);
+    panel.debug = OFF; rf(panel.xmit = OFF), panel.axis = Axis::FREQ; };
   rf(panel.xmit);
-    // A_dafruit S_eeS_aw
-  ASS ass; bool hasAss{ ass.begin() };
+  ASS ass; bool hasAss{ ass.begin() };      // A_dafruit S_eeS_aw
   if(hasAss) ass.pinModeBulk(btnMask, INPUT_PULLUP); else rf(ON);
 ; for( bool update{ON}; ON; delay(66) ) {
     if( blank ) { Timer1.stop(); oled.clear(); blank = 0; }
@@ -424,9 +431,9 @@ auto setup() -> void {
           case Axis::REF:   panel.Ref.pr();   break; } pr('\n'); }
       update = blank = 0; }
     if( hasAss ) { auto action{ btns(ass) }; if(action) { update = 1; switch(action) {
-      default:   break;
-      case shft: while( shft == btns(ass) ); break;
-      case incr: switch(panel.axis) {
+      default:    break;
+      case shft:  while( shft == btns(ass) ); break;
+      case incr:  switch(panel.axis) {
                     default:
                     case Axis::HOLD:  break;
                     case Axis::FREQ:  panel.Freq(incr);   break;
@@ -434,16 +441,18 @@ auto setup() -> void {
                     case Axis::PHAS:  panel.Angle(incr);  break;
                     case Axis::REF:   if(panel.debug) panel.Ref(incr); break; }
                   while( btns(ass) ); break;
-      case save: panel.xmit = rf(); if(hasXmem) xmem.writeObject(0,panel); while(btns(ass)); break;
-      case left: switch(panel.axis) {
+      case save:  if(hasXmem) {
+                    recall.check = checkMem(&panel, sizeof(panel));
+                    xmem.writeObject(0,recall); } while(btns(ass)); break;
+      case left:  switch(panel.axis) {
                     default:
                     case Axis::HOLD:  break;
                     case Axis::FREQ:  panel.Freq(left);   break;
                     case Axis::AMPL:  panel.Power(left);  break;
                     case Axis::PHAS:  panel.Angle(left);  break;
                     case Axis::REF:   panel.Ref(left);    break; } while( btns(ass) ); break;
-      case prev: ++panel.axis; while( btns(ass) ); break;
-      case decr: switch(panel.axis) {
+      case prev:  ++panel.axis; while( btns(ass) ); break;
+      case decr:  switch(panel.axis) {
                     default:
                     case Axis::HOLD:  break;
                     case Axis::FREQ:  panel.Freq(decr); break;
@@ -451,8 +460,8 @@ auto setup() -> void {
                     case Axis::PHAS:  if(1<panel.Angle()) panel.Angle(decr); break;
                     case Axis::REF:   if(panel.debug) panel.Ref(decr); break; }
                   while(btns(ass)); break;
-      case xmit: rf( !rf() ); while( btns(ass) ); break;
-      case rght: switch(panel.axis) {
+      case xmit:  rf( panel.xmit = !rf() ); while( btns(ass) ); break;
+      case rght:  switch(panel.axis) {
                     default:
                     case Axis::HOLD:  break;
                     case Axis::FREQ:  panel.Freq(rght);   break;
