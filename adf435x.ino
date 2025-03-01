@@ -12,7 +12,7 @@
   #include <SPI.h>
   #include <TimerOne.h>
   #include <Wire.h>
-; using i64 = long long;
+  using i64 = long long;
   using ASS = Adafruit_seesaw;
   using DBL = double;
   using XMEM = Adafruit_EEPROM_I2C;
@@ -87,7 +87,7 @@ namespace Hardware {
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // Pick a modulus (not divisible by {2,3}).
   static_assert((4096>MOD) && (MOD%2) && (MOD%3));  // 12 bits with spur avoidance.
   constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
- constexpr   u16  IOTA{ 1000 };                     // IOTA such that the following are exact.
+ constexpr   u16  IOTA{ 1000 };                     // Choose IOTA such that R_COUNT is exact.
   constexpr auto  R_COUNT{ u16(OSC / IOTA / MOD) }; // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  TGLR{ ON }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
  constexpr  auto  PFD{ DBL(OSC) * (1+DBLR) / (1+TGLR) / R_COUNT };
@@ -220,34 +220,35 @@ class SpecifiedOverlay {
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
   /* ©rwHelgeson 2024, 2025. */
 class Resolver {
-  // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
-  private:
-  State loci{ INIT };
-  DBL pvtPFD; u16 spacing;
-  auto amplitude() -> const u8 { return loci.rpwr; }
-  auto amplitude(const dBm& a) -> const decltype(loci) { loci.rpwr = a; return loci; }
-  auto phi() -> const DBL { return (loci.prop / DBL(loci.dnom - 1)); }
-  auto phi(DBL normalized) -> const decltype(loci) {
-      normalized = constrain((0 > normalized) ? -normalized : normalized, 0, 1);
-      auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
-      loci.prop = (1 > proportion) ? 1 : proportion;
+  private:  // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
+    State loci{ INIT };
+    DBL pvtPFD; u16 spacing;
+    auto amplitude() -> const u8 { return loci.rpwr; }
+    auto amplitude(const dBm& a) -> const decltype(loci) { loci.rpwr = a; return loci; }
+      #ifdef MULTIPLE_PLL
+        auto phi() -> const DBL { return (loci.prop / DBL(loci.dnom - 1)); }
+        auto phi(DBL normalized) -> const decltype(loci) {
+            normalized = constrain((0 > normalized) ? -normalized : normalized, 0, 1);
+            auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
+            loci.prop = (1 > proportion) ? 1 : proportion;
+            return loci; }
+      #endif
+    auto omega() -> const i64 {
+      return i64(pvtPFD) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
+    auto omega(const i64& bn) -> const decltype(loci) {
+      auto freq{ constrain(bn, MIN_FREQ, MAX_FREQ) };
+      loci.rdiv = u16( floor( log2(MAX_VCO/freq) ) );
+      auto fractional_N{ (freq / pvtPFD) * pow(2, loci.rdiv) };
+      loci.whol = u16( trunc( fractional_N ) );
+      //loci.whol = (22 < loci.whol) ? loci.whol : 22;
+      loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
+      loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
       return loci; }
-  auto omega() -> const i64 {
-    return i64(pvtPFD) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
-  auto omega(const i64& bn) -> const decltype(loci) {
-    auto freq{ constrain(bn, MIN_FREQ, MAX_FREQ) };
-    loci.rdiv = u16( floor( log2(MAX_VCO/freq) ) );
-    auto fractional_N{ (freq / pvtPFD) * pow(2, loci.rdiv) };
-    loci.whol = u16( trunc( fractional_N ) );
-    //loci.whol = (22 < loci.whol) ? loci.whol : 22;
-    loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
-    loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
-    return loci; }
-  auto pnum() -> const i64 { return loci.prop; }
-  auto pnum(const i64& bn) -> const decltype(loci) {
-    loci.prop = constrain(bn, 1, loci.dnom-1 ); return loci; }
+    auto pnum() -> const i64 { return loci.prop; }  // Phase NUMerator: phase = prop / denom
+    auto pnum(const i64& bn) -> const decltype(loci) {
+      loci.prop = constrain(bn, 1, loci.dnom-1 ); return loci; }
   public:
-  Resolver( const DBL& initial_pfd = PFD, const u16& step = IOTA )
+  Resolver( const DBL& initial_pfd, const u16& step )
     : pvtPFD{ initial_pfd }, spacing{ step } {}
   auto operator()(const i64& bn, Axis axis = Axis::FREQ) -> const decltype(loci) { switch(axis) {
     default:
@@ -261,7 +262,7 @@ class Resolver {
       case Axis::FREQ:  return omega();
       case Axis::AMPL:  return static_cast<i64>(amplitude());
       case Axis::PHAS:  return pnum(); } }
-  auto pfd() -> const DBL { return pvtPFD; }
+  auto pfd() -> const DBL { return pvtPFD; }  // Phase Frequency Detector
   auto pfd(const i64& ref) -> void { pvtPFD = DBL(ref) * (1+DBLR) / (1+TGLR) / R_COUNT; } };
     /* ©rwHelgeson 2024, 2025. */
   template <size_t Digits>
@@ -312,16 +313,17 @@ class Numeral {
   /* End Synthesis:: */ }
 void setup() __attribute__ ((noreturn));
   //https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noreturn-function-attribute
+  //  void loop() {} haHa! Put that up your execution paradigm.
 auto setup() -> void {
   using namespace Hardware;
-  pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable.
+  pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
   rf( OFF );
   pinMode(static_cast<u8>(PIN::LE_A), OUTPUT);
   digitalWrite(static_cast<u8>(PIN::LE_A), 1);
   pinMode(static_cast<u8>(PIN::LD_A), INPUT);
-  // pinMode(static_cast<u8>(PIN::LE_B), OUTPUT);
-  // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
-  // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
+    // pinMode(static_cast<u8>(PIN::LE_B), OUTPUT);
+    // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
+    // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
   Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
@@ -331,9 +333,9 @@ auto setup() -> void {
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
                                     // Quantiy I::_end calls of set() are required, in any order.
-  //                     I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
+  //  handled later are: I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
   pll( I::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
-  pll( I::phAdj, OFF );                                                                    // (5)
+    //pll( I::phAdj, OFF );              // redundant                                      // (5)
   pll( I::prescaler,PRSCL::eight9ths );  // Possiblly redundant                            // (6)
   pll( I::counterReset, OFF );                                                             // (7)
   pll( I::cp3state, OFF );                                                                 // (8)
@@ -349,8 +351,8 @@ auto setup() -> void {
   pll( I::muxOut, MuxOut::HiZ );          // see 'cheat sheet'                               (18)
   pll( I::LnLsModes, lowNoise );                                                          // (19)
   constexpr auto CLKDIV32{ 150 };          // I don't understand this, YET.
-  //= round( PFD / MOD * 400e-6 ); // from datasheets'
-  // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
+    //= round( PFD / MOD * 400e-6 ); // from datasheets'
+    // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
   static_assert( (0 < CLKDIV) && (4096 > CLKDIV) ); // Non-zero, 12 bit value.
   pll( I::clkDivider, CLKDIV );                                                           // (20)
@@ -359,7 +361,7 @@ auto setup() -> void {
   pll( I::chrgCancel, OFF );                                                              // (23)
   pll( I::abp, ABPnS::nS6fracN );                                                         // (24)
   pll( I::bscMode,(MIN_PFD < PFD) ? BSCmd::programmed : BSCmd::automatic );               // (25)
-  pll( I::rfOutPwr, minus4 );             // Possiblly redundant                          // (26)
+    //pll( I::rfOutPwr, minus4 );         // redundant                                    // (26)
   pll( I::rfSoftEnable, ON );                                                             // (27)
   pll( I::auxOutPwr, minus4 );                                                            // (28)
   pll( I::auxOutEnable, OFF );            // Pin not connected.                              (29)
@@ -369,18 +371,17 @@ auto setup() -> void {
   pll( I::rfFBselect, !Feedback );  // EEK! Why the negation? Perhaps I've been daVinci'd.   (33)
   pll( I::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
-; Resolver resolver;
   pll.phAdj(OFF);
+; Resolver resolver(PFD, IOTA);
   struct Panel { Numeral<8> Ref; Numeral<1> Power; Numeral<10> Freq; Numeral<3> Angle;
-                 bool debug, xmit; Axis axis; };
-  struct { Panel panel; u8 check; } recall;
+                 bool xmit, more; Axis axis; };
+  struct { Panel panel; u8 check; } recall; Panel& panel{ recall.panel };
   XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, recall);
-  Panel& panel{ recall.panel };
-  if( checkMem(&panel, sizeof(panel)) != recall.check ) { // recall override: set RefOsc edit mode
+  if( checkMem(&panel, sizeof(panel)) != recall.check ) { // recall override
     panel.Ref(OSC); panel.Power(minus4); panel.Freq(50*MHz); panel.Angle(1);
-    panel.debug = ON; panel.xmit = ON, panel.axis = Axis::REF; };
+    panel.xmit = ON, panel.more = ON; panel.axis = Axis::REF; };  // RefOsc edit (cal) mode
   rf(panel.xmit);
-  ASS ass; bool hasAss{ ass.begin() };      // A_dafruit S_eeS_aw
+  ASS ass; bool hasAss{ ass.begin() };  // A_dafruit S_eeS_aw
   if(hasAss) ass.pinModeBulk(btnMask, INPUT_PULLUP); else rf(ON);
 ; for( bool update{ON}; ON; delay(66) ) {
     if( blank ) { Timer1.stop(); oled.clear(); blank = 0; }
@@ -390,14 +391,14 @@ auto setup() -> void {
       resolver.pfd(panel.Ref());
       panel.Freq(constrain(panel.Freq(), MIN_FREQ, MAX_FREQ));
       pll(resolver(panel.Freq(), Axis::FREQ));
-      panel.Angle(constrain(panel.Angle() ,1, pll().dnom-1));
+      panel.Angle(constrain(panel.Angle(), 1, pll().dnom-1));
       pll(resolver(panel.Angle(), Axis::PHAS));
-      pll.flush().lock();
-      oled.clear();
-      Timer1.start();
-      if(panel.debug) { oled.setFont(font5x7); oled.setLetterSpacing(1); }
-      else            { oled.setFont(X11fixed7x14); oled.setLetterSpacing(3); }
-      if(rf()) oled.print("*"); else oled.print(" ");
+;     pll.flush();
+      oled.clear(); Timer1.start();
+      if(panel.more)  { oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
+      else            { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
+      if(pll.locked()) oled.print('+'); else oled.print('-');
+      if(rf()) oled.print('*'); else oled.print(' ');
       switch(panel.axis) {
         default:
         case Axis::HOLD:  oled.println(" Hold");      break;
@@ -405,7 +406,7 @@ auto setup() -> void {
         case Axis::AMPL:  oled.println("Power");      panel.Power.disp(oled); break;
         case Axis::PHAS:  oled.println("Phase");      panel.Angle.disp(oled); break;
         case Axis::REF:   oled.println("RefOsc");     panel.Ref.disp(oled);   break; }
-      if(panel.debug) {
+      if(panel.more) {
         oled.print("rpwr: ");   oled.print(pll().rpwr);
         oled.print(" rdiv: ");  oled.print(pll().rdiv);
         oled.print("\ndnom: "); oled.print(pll().dnom);
@@ -424,42 +425,42 @@ auto setup() -> void {
           case Axis::PHAS:  panel.Angle.pr(); break;
           case Axis::REF:   panel.Ref.pr();   break; } pr('\n'); }
       update = blank = 0; }
-    if( hasAss ) { auto action{ btns(ass) }; if(action) { update = 1; switch(action) {
-      default:    break;
-      case shft:  while( shft == btns(ass) ); break;
-      case incr:  switch(panel.axis) {
-                    default:
-                    case Axis::HOLD:  break;
-                    case Axis::FREQ:  panel.Freq(incr);   break;
-                    case Axis::AMPL:  panel.Power(incr);  break;
-                    case Axis::PHAS:  panel.Angle(incr);  break;
-                    case Axis::REF:   if(panel.debug) panel.Ref(incr); break; }
-                  while( btns(ass) ); break;
-      case save:  if(hasXmem) {
-                    recall.check = checkMem(&panel, sizeof(panel));
-                    xmem.writeObject(0,recall); } while(btns(ass)); break;
-      case left:  switch(panel.axis) {
-                    default:
-                    case Axis::HOLD:  break;
-                    case Axis::FREQ:  panel.Freq(left);   break;
-                    case Axis::AMPL:  panel.Power(left);  break;
-                    case Axis::PHAS:  panel.Angle(left);  break;
-                    case Axis::REF:   panel.Ref(left);    break; } while( btns(ass) ); break;
-      case prev:  ++panel.axis; while( btns(ass) ); break;
-      case decr:  switch(panel.axis) {
-                    default:
-                    case Axis::HOLD:  break;
-                    case Axis::FREQ:  panel.Freq(decr); break;
-                    case Axis::AMPL:  if(panel.Power()) panel.Power(decr); break;
-                    case Axis::PHAS:  if(1<panel.Angle()) panel.Angle(decr); break;
-                    case Axis::REF:   if(panel.debug) panel.Ref(decr); break; }
-                  while(btns(ass)); break;
-      case xmit:  rf( panel.xmit = !rf() ); while( btns(ass) ); break;
-      case rght:  switch(panel.axis) {
-                    default:
-                    case Axis::HOLD:  break;
-                    case Axis::FREQ:  panel.Freq(rght);   break;
-                    case Axis::AMPL:  panel.Power(rght);  break;
-                    case Axis::PHAS:  panel.Angle(rght);  break;
-                    case Axis::REF:   panel.Ref(rght);    break; } while( btns(ass) ); break;
-      case next:  panel.debug = !panel.debug; while( btns(ass) ); break; } } } } } void loop() {}
+;   if( hasAss ) { auto action{ btns(ass) }; if(action) {
+      update = 1;
+      switch(action) {  // See README.md for button press sequence detail
+        default:    break;
+        case shft:  while( shft == btns(ass) ); break;
+        case incr:  while( btns(ass) ); switch(panel.axis) {
+                      default:
+                      case Axis::HOLD:  break;
+                      case Axis::FREQ:  panel.Freq(incr);   break;
+                      case Axis::AMPL:  panel.Power(incr);  break;
+                      case Axis::PHAS:  panel.Angle(incr);  break;
+                      case Axis::REF:   if(panel.more) panel.Ref(incr); break; } break;
+        case save:  while( btns(ass) ); if(hasXmem) {
+                      recall.check = checkMem(&panel, sizeof(panel));
+                      xmem.writeObject(0,recall); } break;
+        case left:  while( btns(ass) ); switch(panel.axis) {
+                      default:
+                      case Axis::HOLD:  break;
+                      case Axis::FREQ:  panel.Freq(left);   break;
+                      case Axis::AMPL:  panel.Power(left);  break;
+                      case Axis::PHAS:  panel.Angle(left);  break;
+                      case Axis::REF:   panel.Ref(left);    break; } break;
+        case prev:  while( btns(ass) ); ++panel.axis; break;
+        case decr:  while( btns(ass) ); switch(panel.axis) {
+                      default:
+                      case Axis::HOLD:  break;
+                      case Axis::FREQ:  panel.Freq(decr); break;
+                      case Axis::AMPL:  if(panel.Power()) panel.Power(decr); break;
+                      case Axis::PHAS:  if(1<panel.Angle()) panel.Angle(decr); break;
+                      case Axis::REF:   if(panel.more) panel.Ref(decr); break; } break;
+        case xmit:  while( btns(ass) ); rf( panel.xmit = !rf() ); break;
+        case rght:  while( btns(ass) ); switch(panel.axis) {
+                      default:
+                      case Axis::HOLD:  break;
+                      case Axis::FREQ:  panel.Freq(rght);   break;
+                      case Axis::AMPL:  panel.Power(rght);  break;
+                      case Axis::PHAS:  panel.Angle(rght);  break;
+                      case Axis::REF:   panel.Ref(rght);    break; } break;
+        case next:  while( btns(ass) ); panel.more = !panel.more; break; } } } } }

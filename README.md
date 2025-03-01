@@ -1,4 +1,3 @@
-
 ```cpp
 /* ©2024 kd9fww. ADF435x using ATMEGA328 hardware SPI.
 https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Where you got this code.
