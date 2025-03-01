@@ -280,9 +280,9 @@ class Numeral {
   public:
   Numeral(i64 bn = 0) { operator()(bn); }
   virtual ~Numeral() {}
-  auto disp( OLED& oled ) -> void {
-    for(size_t ix{}; size() != ix; ix++) oled.print(operator[](size()-1-ix)); oled.println();
-    for(size_t ix{}; size()-1-cursor() != ix; ix++) oled.print(' ');          oled.println('^'); }
+  auto disp( OLED& oled, const bool carat = true ) -> void {
+    for(size_t x{}; size() != x; x++) oled.print(operator[](size()-1-x)); oled.println();
+    if(carat) { for(size_t x{}; size()-1-cursor()!=x; x++) oled.print(' '); oled.println('^'); } }
   auto operator[](const size_t& pstn) -> const u8 { return numrl[constrain(pstn, 0, Digits-1)]; }
   auto operator()() -> const i64 {
     i64 sum{0};
@@ -400,7 +400,7 @@ auto setup() -> void {
         case Axis::FREQ:  oled.println("Frequency");  panel.Freq.disp(oled);  break;
         case Axis::AMPL:  oled.println("Power");      panel.Power.disp(oled); break;
         case Axis::PHAS:  oled.println("Phase");      panel.Angle.disp(oled); break;
-        case Axis::REF:   oled.println("RefOsc");     panel.Ref.disp(oled);   break; }
+        case Axis::REF:   oled.println("RefOsc");     panel.Ref.disp(oled,panel.more); break; }
       if(panel.more) {
         oled.print("rpwr: ");   oled.print(pll().rpwr);
         oled.print(" rdiv: ");  oled.print(pll().rdiv);
@@ -440,7 +440,7 @@ auto setup() -> void {
                         case Axis::FREQ:  panel.Freq(left);   break;
                         case Axis::AMPL:  panel.Power(left);  break;
                         case Axis::PHAS:  panel.Angle(left);  break;
-                        case Axis::REF:   panel.Ref(left);    break; } break;
+                        case Axis::REF:   if(panel.more) panel.Ref(left); break; } break;
           case decr:  deviceUpdate = 1; switch(panel.axis) {
                         default:
                         case Axis::HOLD:  deviceUpdate = 0; break;
@@ -454,7 +454,7 @@ auto setup() -> void {
                         case Axis::FREQ:  panel.Freq(rght);   break;
                         case Axis::AMPL:  panel.Power(rght);  break;
                         case Axis::PHAS:  panel.Angle(rght);  break;
-                        case Axis::REF:   panel.Ref(rght);    break; } break;
+                        case Axis::REF:   if(panel.more) panel.Ref(rght); break; } break;
           case save:  if(hasXmem) {
                         recall.check = checkMem(&panel, sizeof(panel));
                         xmem.writeObject(0,recall); } break;
