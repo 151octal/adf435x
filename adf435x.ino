@@ -15,8 +15,8 @@
   using i64 = long long;
   using ASS = Adafruit_seesaw;
   using DBL = double;
+  using OLED = SSD1306AsciiWire;  // Because the Adafruit library is too big.
   using XMEM = Adafruit_EEPROM_I2C;
-  using OLED = SSD1306AsciiWire;      // Work around because the Adafruit oled library is too big.
   enum Enable { OFF = 0, ON = 1 };
   auto pr( const char& cc ) -> size_t { return Serial.print(cc); }  // Shorthand.
   auto pr( const u8& uc ) -> size_t { return Serial.print(uc); }
@@ -313,7 +313,7 @@ class Numeral {
   /* End Synthesis:: */ }
 void setup() __attribute__ ((noreturn));
   //https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noreturn-function-attribute
-  //  void loop() {} haHa! Put that up your execution paradigm.
+  //  void loop() {} haHa!
 auto setup() -> void {
   using namespace Hardware;
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
