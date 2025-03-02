@@ -36,12 +36,12 @@ prevents (unShifted) modification. Displayable are Pll model internal (state) va
 is only permitted when these values are selected to be displayed. The runtime code size is large,
 but it handles per digit editable numbers of specified length with ease. The human interface
 elements (display, print, editable persistent settings) sum to more than half of the code size.
-The least impact button action change would be to drop the Toggle RF feature and implement
+The least impact button action change would be to drop the Toggle RF feature and in favor of
 something else. Also possible are the (unimplemented) sum of adjacent buttons such as LFT+UP.
 Communication over SPI occurs at full speed. The pll is updated at every recognized sequence:
 ------------------------------------------------------------------------------------------------
     1st (unShifted) Sequence: 1)Press 1st 2)Release 1st
-    2nd   (Shifted) Sequence: 1)Press hold SHFT 2)Press hold 2nd 3)Release SHFT 4)Release 2nd
+    2nd   (Shifted) Sequence: 1)Press hold SHFT 2)Press hold 2nd 3)Release 2nd
               |-- unShifted -------------------|--------Shifted---------------------------------
       UP      |  UP: Increment digit at Cursor |  SHFT+UP: Save
  LFT SHFT RGT | LFT: Move digit Cursor left    | SHFT+LFT: Next Axis
