@@ -48,7 +48,7 @@ namespace Hardware {
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
   auto Nudge{ [](){ sleep_disable(); } };
-  auto snooz() -> void {  // macros, not lambda friendly. Another reason not to promulgate them.
+  auto snooz() -> void {  // macros, not lambda friendly. Another reason to promulgate them not.
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);                      sleep_enable();
     attachInterrupt(digitalPinToInterrupt(USR), Nudge, LOW);  sleep_mode();
     detachInterrupt(digitalPinToInterrupt(USR)); }
@@ -65,7 +65,7 @@ namespace Hardware {
     case Axis::FREQ: return axis = Axis::PHAS;
     case Axis::PHAS: return axis = Axis::AMPL;
     case Axis::AMPL: return axis = Axis::REF;
-    case Axis::REF:  return axis = Axis::HOLD; } }
+    case Axis::REF:  return axis = Axis::HOLD; } return axis; }
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
@@ -389,10 +389,11 @@ auto setup() -> void {
   if( checkMem(&panel, sizeof(panel)) != recall.check ) { // default values
     panel.Ref(OSC); panel.Power(minus4); panel.Freq(34*MHz + 375*kHz); panel.Angle(1);
     panel.xmit = ON, panel.more = ON; panel.axis = Axis::REF; }; rf(panel.xmit);
-  ASS ass; while(!ass.begin()); // A_dafruit S_eeS_aw
-  ass.pinModeBulk(btnMsk, INPUT_PULLUP); ass.setGPIOInterrupts(btnMsk, 1);
+      // A_dafruit S_eeS_aw
+  ASS ass; while(!ass.begin()); bool hasAss{ 5740 == ((ass.getVersion() >> 16) & 0xFFFF) };
+  if(hasAss) { ass.pinModeBulk(btnMsk, INPUT_PULLUP); ass.setGPIOInterrupts(btnMsk, 1); }
   for( bool deviceUpdate{ON}, displayUpdate{ON}; ON; ) {
-;   if( deviceUpdate ) {            // pll stuff
+;   if( deviceUpdate ) {                // stuff for the pll
       panel.Ref(constrain(panel.Ref(), 9*MHz, MAX_PFD));
       panel.Power(constrain(panel.Power(), minus4, plus5));
       pll(resolver(panel.Power(), Axis::AMPL));
@@ -402,7 +403,7 @@ auto setup() -> void {
       panel.Angle(constrain(panel.Angle(), 1, pll().dnom-1));
       pll(resolver(panel.Angle(), Axis::PHAS));
       pll.flush(); deviceUpdate = 0; }
-;   if( displayUpdate && !blank ) { // stuff to the human
+;   if( displayUpdate && !blank ) {     // stuff for the human
       oled.clear(); Timer1.start();
       if(panel.more)  { oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
       else            { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
@@ -438,8 +439,8 @@ auto setup() -> void {
         }
       displayUpdate = blank = 0; }
 ;   if( blank ) { Timer1.stop(); oled.clear(); blank = 0; snooz(); }
-;   if( !digitalRead(USR) ) {
-      if( auto action{btns(ass)} ) { // service the human
+;   if( hasAss && !digitalRead(USR) ) { // service the human
+      if( auto action{btns(ass)} ) {
         while( btns(ass) == action ); displayUpdate = 1;
         if(shft != action) switch(action) {
           default:    break;

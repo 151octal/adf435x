@@ -26,20 +26,23 @@ the creation of any DC ground loop(s).
   D13(SCK)----| 4 clk | mux 3 |---D4  •optional• Mux is coded as an input but is ignored.
   D7----------| 2 ld  | pdr 1 |---D6
               |---------------|
-  Leave  0  open to provide [[sleeve]] jumper to  8  Forces a hard disable when present.
+
+  PID5740_SeeSaw_INT_PIN-----wire-----metro_mini_D2  <- REQUIRED!
 ------------------------------------------------------------------------------------------------
 Accomodated are 1) optional i2c serial eemem for overide of defaults with saved settings at
-startup, 2) optional oled for displaying settings, and 3) optional momentary pushbuttons via an
-Adafruit i2c SeeSaw module for (optionally persitent) runtime settings modification. Ajustable
-are Power, Frequency, Phase, and Oscillator frequency (calibration), with a Hold feature which
-prevents (unShifted) modification. Displayable are Pll model internal (state) values. Calibration
-is only permitted when these values are selected to be displayed. The runtime code size is large,
-but it handles per digit editable numbers of specified length with ease. The human interface
-elements (display, print, editable persistent settings) sum to more than half of the code size.
-The least impact button action change would be to drop the Toggle RF feature and in favor of
-something else. Also possible are the (unimplemented) sum of adjacent buttons such as LFT+UP.
-Communication over SPI occurs at full speed. The pll is updated at every recognized sequence:
+startup, 2) optional oled for displaying settings, and 3) five momentary pushbuttons via an
+Adafruit "ANO" encoder i2c SeeSaw module for (optionally persitent) runtime settings
+modification. Ajustable are Power, Frequency, Phase, and Oscillator frequency (calibration),
+with a Hold feature which prevents (unShifted) modification. Displayable are Pll model internal
+state values. Calibration is only permitted when these values are selected to be displayed.
+The runtime code size is large, but it handles per digit editable numbers of specified length
+with ease. The human interface elements (display, print, editable persistent settings) sum to
+more than half of the code size. The least impact button action change would be to drop the
+Toggle RF feature and in favor of something else. Also possible are the (unimplemented) sum of
+adjacent buttons such as LFT+UP. Communication over SPI occurs at full speed. If user inactivity
+exceeds ~7 seconds, the oled is extinguished and the cpu enters low power sleep mode.
 ------------------------------------------------------------------------------------------------
+Recognized sequences:
     1st (unShifted) Sequence: 1)Press 1st 2)Release 1st
     2nd   (Shifted) Sequence: 1)Press hold SHFT 2)Press hold 2nd 3)Release 2nd
               |-- unShifted -------------------|--------Shifted---------------------------------
