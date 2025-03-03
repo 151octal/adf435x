@@ -292,10 +292,17 @@ class Nmrl {
   public:
   Nmrl(i64 bn = 0) { operator()(bn); }
   virtual ~Nmrl() {}
-  auto disp( OLED& oled, const bool carat = true ) -> void {
-    for(size_t x{}; size() != x; x++) oled.print(operator[](size()-1-x)); oled.println();
-    if(carat) { for(size_t x{}; size()-1-cursor()!=x; x++) oled.print(' '); oled.println('^'); } }
-  auto operator[](const size_t& pstn) -> const u8 { return numrl[constrain(pstn, 0, Digits-1)]; }
+  auto disp( OLED& oled, char term = 0, const bool carat = true ) -> void {
+    const auto current{ cursor() };
+    auto keep{ oled.invertMode() };
+    oled.setFont(X11fixed7x14); oled.setLetterSpacing(4);
+    for(size_t x{}; size() != x; x++) {
+      if(carat) { if(size()-1-current == x)   oled.setInvertMode(1);
+      /**/        /**/                  else  oled.setInvertMode(0); }
+      oled.print(operator[](size()-1-x));  }
+    oled.setInvertMode(keep); oled.print(term);
+    oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
+ auto operator[](const size_t& pstn) -> const u8 { return numrl[constrain(pstn, 0, Digits-1)]; }
   auto operator()() -> const i64 {
     i64 sum{0};
     for(u8 idx{0}; idx!=numrl.size(); idx++) sum += operator[](idx) * power(Radix, idx);
@@ -340,7 +347,7 @@ auto setup() -> void {
     #ifdef DEBUG
   Serial.begin(115200L);
     #endif
-  OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
+  OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0x40);
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
@@ -394,7 +401,7 @@ auto setup() -> void {
   AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
   if(hasSS) { ss.pinModeBulk(btnMask, INPUT_PULLUP); ss.setGPIOInterrupts(btnMask, 1); }
   for( bool toDevice{ON}, toHuman{ON}; ON; ) {
-;   if( toDevice ) { toDevice = 0;
+/**/if( toDevice ) { toDevice = 0;
       pnl.Ref(constrain(pnl.Ref(), 9*MHz, MAX_PFD));
       pnl.Pwr(constrain(pnl.Pwr(), minus4, plus5));
       pll(resolver(pnl.Pwr(), Axis::AMPL));
@@ -404,21 +411,20 @@ auto setup() -> void {
       pnl.Lag(constrain(pnl.Lag(), 1, pll().dnom-1));
       pll(resolver(pnl.Lag(), Axis::PHAS));
       pll.flush(); }
-;   if( toHuman && !timOut ) {
+/**/if( toHuman && !timOut ) {
       oled.clear(); Timer1.start();
-      if(pnl.cal) {
-                    oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
-            else  { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
+      if(pnl.cal) { oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
+      /**/  else  { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
       if(pll.locked()) oled.print('+'); else oled.print('-');
       if(rf()) oled.print('+'); else oled.print('-');
         // I'm having an inherititance<N> mental block. N is getting in my way.
       switch(pnl.axs) {
         default:
-        case Axis::HOLD:                                                          break;
-        case Axis::FREQ:  oled.println("Frequency");  pnl.Frq.disp(oled);         break;
-        case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled);         break;
-        case Axis::PHAS:  oled.println("Phase");      pnl.Lag.disp(oled);         break;
-        case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,pnl.cal); break; }
+        case Axis::HOLD:                                                                break;
+        case Axis::FREQ:  oled.println("Frequency");  pnl.Frq.disp(oled,'\n');          break;
+        case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled,'\n');          break;
+        case Axis::PHAS:  oled.println("Phase");      pnl.Lag.disp(oled,'\n');          break;
+        case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,'\n',pnl.cal);  break; }
       if(pnl.cal && (Axis::HOLD != pnl.axs)) {
         oled.print("rpwr: ");   oled.print(pll().rpwr);
         oled.print(" rdiv: ");  oled.println(pll().rdiv);
@@ -441,8 +447,8 @@ auto setup() -> void {
             #endif
         }
       toHuman = timOut = 0; }
-;   if( timOut ) { timOut = 0; Timer1.stop(); oled.clear(); snooz(); /* Awake here, just now. */ }
-;   if( hasSS && !digitalRead(USR) ) { // Service the human.
+/**/if( timOut ) { timOut = 0; Timer1.stop(); oled.clear(); snooz(); /* Awake here, just now. */ }
+/**/if( hasSS && !digitalRead(USR) ) { // Service the human.
       if( auto action{ btns(ss) } ) { toHuman = 1; if(sft != action) switch(action) {
           default:                                                              break;
           case    inc:  toDevice = 1;
