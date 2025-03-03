@@ -29,7 +29,7 @@ Power, Frequency, Phase, and Oscillator frequency (for
 reference error correction), with a Hold feature which
 prevents (unShifted) modification. Displayable are Pll model
 internal state values. These are made availabe both on the
-display and out the serial port (1000000 baud) when the
+display and out the serial port (115200 baud) when the
 error correction (calibration) axis is selected. The runtime
 code size is large (26k), but it handles per digit editable
 numbers of specified length capable of representing a 2**64
@@ -37,7 +37,7 @@ magnitude, with ease. The human interface elements (display,
 print, editable persistent settings) sum to more than half
 of the code size. Possible are the (unimplemented) sum of
 adjacent buttons such as LFT+INC. Communication over SPI
-occurs at full speed. If user inactivity exceeds ~7 seconds,
+occurs at full speed. If user inactivity exceeds 10 seconds,
 the oled is extinguished and the cpu enters low power sleep
 mode.
 ------------------------------------------------------------

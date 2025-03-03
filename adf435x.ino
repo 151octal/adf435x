@@ -15,7 +15,7 @@
   #include <TimerOne.h>
   #include <Wire.h>
   #define DEBUG
-    #undef DEBUG
+  //  #undef DEBUG
   using i64 = long long;
   using Ss = Adafruit_seesaw;
   using DBL = double;
@@ -336,9 +336,9 @@ auto setup() -> void {
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP); // ignored
   Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
-  Timer1.initialize(7654321UL);  Timer1.attachInterrupt(Trigger);  // oled saver
+  Timer1.initialize(10000000UL);  Timer1.attachInterrupt(Trigger);  // Inactivity timer
     #ifdef DEBUG
-  Serial.begin(1000000L);
+  Serial.begin(115200L);
     #endif
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
   using namespace Synthesis;
