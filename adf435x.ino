@@ -439,8 +439,8 @@ auto setup() -> void {
             #endif
         }
       toHuman = timOut = 0; }
-;   if( timOut ) { timOut = 0; Timer1.stop(); oled.clear(); snooz(); }
-;   if( hasSS && !digitalRead(USR) ) { // service the human
+;   if( timOut ) { timOut = 0; Timer1.stop(); oled.clear(); snooz(); /* We are asleep here. */ }
+;   if( hasSS && !digitalRead(USR) ) { // (Not necessarily just now,) Awake. Service the human.
       if( auto action{ btns(ss) } ) { toHuman = 1; if(sft != action) switch(action) {
           default:                                                              break;
           case    inc:  toDevice = 1;
