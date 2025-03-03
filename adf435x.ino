@@ -146,7 +146,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
   constexpr State INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
-  /* ©rwHelgeson[kd9fww] 2024, 2025. */
+  /* kd9fww */
 class SpecifiedOverlay {
   private:
     HW::PIN le{ HW::ctrl[HW::UNIT::A].le }, ld{ HW::ctrl[HW::UNIT::A].ld };
@@ -227,7 +227,7 @@ class SpecifiedOverlay {
     // Wrapper for opertor()( loci )
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
-  /* ©rwHelgeson[kd9fww] 2024, 2025. */
+  /* kd9fww */
 class Resolver {
   private:  // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
     State loci{ INIT };
@@ -272,7 +272,7 @@ class Resolver {
       case Axis::PHAS:  return pnum(); } }
   auto pfd() -> const DBL { return pvtPFD; }  // Phase Frequency Detector frequency
   auto pfd(const i64& ref) -> void { pvtPFD = DBL(ref) * (1+DBLR) / (1+TGLR) / R_COUNT; } };
-    /* ©rwHelgeson[kd9fww] 2024, 2025. */
+    /* kd9fww */
   template <size_t Digits>
 class Cursor {
   private:
