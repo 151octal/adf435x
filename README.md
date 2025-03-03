@@ -11,6 +11,14 @@ product is 5V. Beyond stating that the ADF435x logic level
 is 3V, I assume that you know what you're doing - dont blame
 me if you BRICK yours.
 ------------------------------------------------------------
+Recognized sequences:
+    1st (unShifted): 1)Press 1st 2)Release 1st
+    2nd   (Shifted): 1)Press hold SHFT 2)Press 2nd
+     INC     | INC: Increment    | SFT+INC: Save
+ LFT SFT RGT | LFT: Cursor left  | SFT+LFT: Next Axis
+     DEC     | DEC: Decrement    | SFT+DEC: Toggle RF
+             | RGT: Cursor right | SFT+RGT: Calibration
+------------------------------------------------------------
 Accomodated are 1) optional i2c serial eemem for overide of
 defaults with saved settings atstartup, 2) oled for
 displaying settings, and 3) five momentary pushbuttons via
@@ -31,14 +39,6 @@ adjacent buttons such as LFT+INC. Communication over SPI
 occurs at full speed. If user inactivity exceeds ~7 seconds,
 the oled is extinguished and the cpu enters low power sleep
 mode.
-------------------------------------------------------------
-Recognized sequences:
-    1st (unShifted): 1)Press 1st 2)Release 1st
-    2nd   (Shifted): 1)Press hold SHFT 2)Press 2nd
-     INC     | INC: Increment    | SFT+INC: Save
- LFT SFT RGT | LFT: Cursor left  | SFT+LFT: Next Axis
-     DEC     | DEC: Decrement    | SFT+DEC: Toggle RF
-             | RGT: Cursor right | SFT+RGT: Calibration
 ------------------------------------------------------------
 Wire-wrap, limit to 5cm, and common mode choke the aggregate
 of (qty:8) wires connecting the ADF435x module. Configure
