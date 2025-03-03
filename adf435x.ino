@@ -1,4 +1,5 @@
-/*  ©rwHelgeson 2024, 2025.  ADF435x using ATMEGA328 hardware SPI (in ~500 lines, ~26k of 30k).
+/*  ©rwHelgeson[kd9fww] 2024, 2025.  ADF435x using ATMEGA328 hardware SPI.
+    https://github.com/151octal/adf435x/blob/main/LICENSE
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source code.
     https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
@@ -145,7 +146,7 @@ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[]
   static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
 struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
   constexpr State INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
-  /* ©rwHelgeson 2024, 2025. */
+  /* ©rwHelgeson[kd9fww] 2024, 2025. */
 class SpecifiedOverlay {
   private:
     HW::PIN le{ HW::ctrl[HW::UNIT::A].le }, ld{ HW::ctrl[HW::UNIT::A].ld };
@@ -226,7 +227,7 @@ class SpecifiedOverlay {
     // Wrapper for opertor()( loci )
   auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
-  /* ©rwHelgeson 2024, 2025. */
+  /* ©rwHelgeson[kd9fww] 2024, 2025. */
 class Resolver {
   private:  // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
     State loci{ INIT };
@@ -271,7 +272,7 @@ class Resolver {
       case Axis::PHAS:  return pnum(); } }
   auto pfd() -> const DBL { return pvtPFD; }  // Phase Frequency Detector frequency
   auto pfd(const i64& ref) -> void { pvtPFD = DBL(ref) * (1+DBLR) / (1+TGLR) / R_COUNT; } };
-    /* ©rwHelgeson 2024, 2025. */
+    /* ©rwHelgeson[kd9fww] 2024, 2025. */
   template <size_t Digits>
 class Cursor {
   private:

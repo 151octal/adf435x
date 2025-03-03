@@ -1,5 +1,6 @@
 ```cpp
 /* ©2024 kd9fww. ADF435x using ATMEGA328 hardware SPI.
+https://github.com/151octal/adf435x/blob/main/LICENSE
 https://github.com/151octal/adf435x/blob/main/adf435x.ino
 https://www.analog.com/ADF4351
 https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet
@@ -30,7 +31,7 @@ prevents (unShifted) modification. Displayable are Pll model
 internal state values. These are made availabe both on the
 display and out the serial port (1000000 baud) when the
 error correction (calibration) axis is selected. The runtime
-code size is large, but it handles per digit editable
+code size is large (26k), but it handles per digit editable
 numbers of specified length capable of representing a 2**64
 magnitude, with ease. The human interface elements (display,
 print, editable persistent settings) sum to more than half
