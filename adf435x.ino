@@ -16,9 +16,9 @@
   #define DEBUG
     #undef DEBUG
   using i64 = long long;
-  using ASS = Adafruit_seesaw;
+  using Ss = Adafruit_seesaw;
   using DBL = double;
-  using OLED = SSD1306AsciiWire;  // Because the Adafruit library is too big.
+  using OLED = SSD1306AsciiWire;  // Because the Adafruit library is too big. (both)
   using XMEM = Adafruit_EEPROM_I2C;
   enum Enable { OFF = 0, ON = 1 };
   auto pr( const char& cc ) -> size_t { return Serial.print(cc); }  // Shorthand.
@@ -34,24 +34,26 @@ namespace Hardware {
   // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
   enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD_A = 7, LE_A = 10 };
   enum UNIT { A, /* B, */ _end };
-  volatile bool blank{ 0 };
+  volatile bool timOut{ 0 };
   constexpr auto btnMsk{ 0x3FUL };
-  const auto btns{ [](ASS& ass, const u32& msk = btnMsk){ return msk^ass.digitalReadBulk(msk); } };
-  const auto checkMem = [](void* vp, size_t n) {
+  const auto btns{ [](Ss& ss, const u32& msk = btnMsk){ return msk^ss.digitalReadBulk(msk); } };
+  const auto ckMem = [](void* vp, size_t n) {
     auto p{ static_cast<u8*>(vp) };
     u16 sum{0}; while(n--) { sum += *(p++); sum %= 255; } return sum; };
   constexpr struct CTRL { PIN le, ld; } ctrl[] = { [A] = { LE_A, LD_A } };/*
     , [B] = { LE_B, LD_B } };*/
   static_assert(UNIT::_end == sizeof(ctrl) / sizeof(ctrl[0]));
   auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
-  auto Hide{ [](){ blank = 1; } };  // Timer1 ISR target
+  auto Trigger{ [](){ timOut = 1; } };  // Timer1 ISR target
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
   auto Nudge{ [](){ sleep_disable(); } };
-  auto snooz() -> void {  // macros, not lambda friendly. Another reason to promulgate them not.
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN);                      sleep_enable();
-    attachInterrupt(digitalPinToInterrupt(USR), Nudge, LOW);  sleep_mode();
-    detachInterrupt(digitalPinToInterrupt(USR)); }
+  auto snooz() -> void {  // lambda hostile macros. Another reason to promulgate them not.
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+    attachInterrupt(digitalPinToInterrupt(USR), Nudge, LOW);
+    sleep_mode();
+    detachInterrupt(digitalPinToInterrupt(USR));  }
   auto tx = [](const PIN& le, void *pByte, int nByte){
     auto p{ static_cast<u8*>(pByte) + nByte };      // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
@@ -60,17 +62,16 @@ namespace Hardware {
 } namespace HW = Hardware; namespace Synthesis {
  enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
   enum class Axis : size_t { HOLD, FREQ, AMPL, PHAS, REF };
-  Axis& operator++(Axis& axis) { switch(axis) {
-    case Axis::HOLD: return axis = Axis::FREQ;
-    case Axis::FREQ: return axis = Axis::PHAS;
-    case Axis::PHAS: return axis = Axis::AMPL;
-    case Axis::AMPL: return axis = Axis::REF;
-    case Axis::REF:  return axis = Axis::HOLD; } return axis; }
+  Axis& operator++(Axis& axs) { switch(axs) {
+    case Axis::HOLD: axs = Axis::FREQ;  break;
+    case Axis::FREQ: axs = Axis::PHAS;  break;
+    case Axis::PHAS: axs = Axis::AMPL;  break;
+    case Axis::AMPL: axs = Axis::REF;   break;
+    case Axis::REF:  axs = Axis::HOLD;  break; } return axs; }
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
-  enum  Action : u8 { shft = 2, incr = shft<<1, left = incr<<1, decr = left<<1, rght = decr<<1,
-                  save = shft+incr, prev = shft+left, xmit = shft+decr, next = shft+rght };
+  enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
   constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
   enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
   enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
@@ -256,14 +257,14 @@ class Resolver {
       loci.prop = constrain(bn, 1, loci.dnom-1 ); return loci; }
   public:
   Resolver( const DBL& pfd, const u16& step ) : pvtPFD{ pfd }, spacing{ step } {}
-  auto operator()(const i64& bn, Axis axis = Axis::FREQ) -> const decltype(loci) { switch(axis) {
+  auto operator()(const i64& bn, Axis axs = Axis::FREQ) -> const decltype(loci) { switch(axs) {
     default:
     case Axis::FREQ:  return omega(bn);
     case Axis::AMPL:  return amplitude(static_cast<dBm>(bn));
     case Axis::PHAS:  return pnum(bn); } }//phi(DBL(bn)); } }
       // Resolver value dispatcher. Returns Axis selective value from State
-  auto operator()(Axis axis = Axis::FREQ) -> const i64 {
-    switch (axis) {
+  auto operator()(Axis axs = Axis::FREQ) -> const i64 {
+    switch (axs) {
       default:
       case Axis::FREQ:  return omega();
       case Axis::AMPL:  return static_cast<i64>(amplitude());
@@ -283,13 +284,13 @@ class Cursor {
   auto operator++() -> decltype(*this) { if(Digits-1 < ++pstn) pstn = 0; return *this; }
   auto operator--() -> decltype(*this) { if(0 == pstn--) pstn = Digits-1; return *this; } };
     template <size_t Digits, size_t Radix = 10>
-class Numeral {
+class Nmrl {
   private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
     Cursor<Digits> cursor;
   public:
-  Numeral(i64 bn = 0) { operator()(bn); }
-  virtual ~Numeral() {}
+  Nmrl(i64 bn = 0) { operator()(bn); }
+  virtual ~Nmrl() {}
   auto disp( OLED& oled, const bool carat = true ) -> void {
     for(size_t x{}; size() != x; x++) oled.print(operator[](size()-1-x)); oled.println();
     if(carat) { for(size_t x{}; size()-1-cursor()!=x; x++) oled.print(' '); oled.println('^'); } }
@@ -300,12 +301,12 @@ class Numeral {
     return sum; }
   auto operator()(const Action& action) -> void { switch(action) {
     default:    break;
-    case incr:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
+    case inc:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
                 operator()( sum ); } break;
-    case decr:  { i64 sum{ operator()() }; sum -= power(Radix, cursor());
+    case dec:  { i64 sum{ operator()() }; sum -= power(Radix, cursor());
                 operator()( sum ); } break;
-    case left: ++cursor; break;
-    case rght: --cursor; break; } }
+    case lft: ++cursor; break;
+    case rgt: --cursor; break; } }
   auto operator()(i64 bn) -> void {
     numrl.clear();
     for(u8 index{0}; index!=Digits; index++) {
@@ -319,29 +320,29 @@ class Numeral {
   /* End Synthesis:: */ }
   void setup() __attribute__ ((noreturn));
   //https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noreturn-function-attribute
-  //  No loop() here! haHahaha!
+  //  No loop(){} haHahaha!
 auto setup() -> void {
   using namespace Hardware;
-  pinMode(static_cast<u8>(PIN::PDR), OUTPUT); // Rf output enable.
+  pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable
   rf( OFF );
-  pinMode(static_cast<u8>(PIN::LE_A), OUTPUT);
+  pinMode(static_cast<u8>(PIN::LE_A), OUTPUT);      // latch enable
   digitalWrite(static_cast<u8>(PIN::LE_A), 1);
-  pinMode(static_cast<u8>(PIN::USR), INPUT_PULLUP);
-  pinMode(static_cast<u8>(PIN::LD_A), INPUT);
+  pinMode(static_cast<u8>(PIN::USR), INPUT_PULLUP); // SeeSaw interrupt
+  pinMode(static_cast<u8>(PIN::LD_A), INPUT);       // lock detect
     // pinMode(static_cast<u8>(PIN::LE_B), OUTPUT);
     // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
     // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
-  pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP);
+  pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP); // ignored
   Wire.begin();  Wire.setClock(400000L);
   SPI.begin();
-  Timer1.initialize(7654321UL);  Timer1.attachInterrupt(Hide);  // oled saver
+  Timer1.initialize(7654321UL);  Timer1.attachInterrupt(Trigger);  // oled saver
     #ifdef DEBUG
   Serial.begin(1000000L);
     #endif
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0);
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
-                                    // Quantiy I::_end calls of set() are required, in any order.
+  // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
   //  handled later are: I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
   pll( I::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
     //pll( I::phAdj, OFF );              // redundant                                      // (5)
@@ -352,14 +353,14 @@ auto setup() -> void {
   pll( I::pdPolarity, PDpolarity::positive );                                             // (10)
   pll( I::ldp, LDPnS::ten );                                                              // (11)
   pll( I::ldf, LockDetectFunction::fracN );                                               // (12)
-  pll( I::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', more increases loop bandwidth.           (13)
+  pll( I::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', cal increases loop bandwidth.           (13)
   pll( I::dblBfr, ON );                                                                   // (14)
   pll( I::rCounter, R_COUNT );                                                            // (15)
   pll( I::refToggler, TGLR );                                                             // (16)
   pll( I::refDoubler, DBLR );                                                             // (17)
   pll( I::muxOut, MuxOut::HiZ );          // see 'cheat sheet'                               (18)
   pll( I::LnLsModes, lowNoise );                                                          // (19)
-  constexpr auto CLKDIV32{ 150 };          // I don't understand this, YET.
+  constexpr auto CLKDIV32{ 150 };         // I don't understand this, YET.
     //= round( PFD / MOD * 400e-6 ); // from datasheets'
     // 'Phase Resync' text: tSYNC = CLK_DIV_VALUE × MOD × tPFD
   constexpr auto CLKDIV{ u16(CLKDIV32) };
@@ -382,101 +383,100 @@ auto setup() -> void {
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
   pll.phAdj(OFF);
 ; Resolver resolver(PFD, IOTA);
-  struct Panel { Numeral<8> Ref; Numeral<1> Power; Numeral<10> Freq; Numeral<3> Angle;
-                 bool xmit, more; Axis axis; };
-  struct { Panel panel; u16 check; } recall; Panel& panel{ recall.panel };
-  XMEM xmem; bool hasXmem{ xmem.begin() }; if( hasXmem ) xmem.readObject(0, recall);
-  if( checkMem(&panel, sizeof(panel)) != recall.check ) { // default values
-    panel.Ref(OSC); panel.Power(minus4); panel.Freq(34*MHz + 375*kHz); panel.Angle(1);
-    panel.xmit = ON, panel.more = ON; panel.axis = Axis::REF; }; rf(panel.xmit);
-      // A_dafruit S_eeS_aw
-  ASS ass; while(!ass.begin()); bool hasAss{ 5740 == ((ass.getVersion() >> 16) & 0xFFFF) };
-  if(hasAss) { ass.pinModeBulk(btnMsk, INPUT_PULLUP); ass.setGPIOInterrupts(btnMsk, 1); }
-  for( bool deviceUpdate{ON}, displayUpdate{ON}; ON; ) {
-;   if( deviceUpdate ) {                // stuff for the pll
-      panel.Ref(constrain(panel.Ref(), 9*MHz, MAX_PFD));
-      panel.Power(constrain(panel.Power(), minus4, plus5));
-      pll(resolver(panel.Power(), Axis::AMPL));
-      resolver.pfd(panel.Ref());
-      panel.Freq(constrain(panel.Freq(), MIN_FREQ, MAX_FREQ));
-      pll(resolver(panel.Freq(), Axis::FREQ));
-      panel.Angle(constrain(panel.Angle(), 1, pll().dnom-1));
-      pll(resolver(panel.Angle(), Axis::PHAS));
-      pll.flush(); deviceUpdate = 0; }
-;   if( displayUpdate && !blank ) {     // stuff for the human
+  struct Panel { Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag; bool xmt, cal; Axis axs; };
+  struct { Panel pnl; u16 check; } Checked; Panel& pnl{ Checked.pnl };
+  XMEM X; bool hasX{ X.begin() }; if( hasX ) X.readObject(0, Checked);
+  if( ckMem(&pnl, sizeof(pnl)) != Checked.check ) { // default values
+    pnl.Ref(OSC); pnl.Pwr(minus4); pnl.Frq(34*MHz + 375*kHz); pnl.Lag(1);
+    pnl.xmt = ON, pnl.cal = ON; pnl.axs = Axis::REF; };
+    rf(pnl.xmt);
+  Ss ss; while(!ss.begin()); bool hasSS{ 5740 == ((ss.getVersion() >> 16) & 0xFFFF) };
+  if(hasSS) { ss.pinModeBulk(btnMsk, INPUT_PULLUP); ss.setGPIOInterrupts(btnMsk, 1); }
+  for( bool toDevice{ON}, toHuman{ON}; ON; ) {
+;   if( toDevice ) { toDevice = 0;
+      pnl.Ref(constrain(pnl.Ref(), 9*MHz, MAX_PFD));
+      pnl.Pwr(constrain(pnl.Pwr(), minus4, plus5));
+      pll(resolver(pnl.Pwr(), Axis::AMPL));
+      resolver.pfd(pnl.Ref());
+      pnl.Frq(constrain(pnl.Frq(), MIN_FREQ, MAX_FREQ));
+      pll(resolver(pnl.Frq(), Axis::FREQ));
+      pnl.Lag(constrain(pnl.Lag(), 1, pll().dnom-1));
+      pll(resolver(pnl.Lag(), Axis::PHAS));
+      pll.flush(); }
+;   if( toHuman && !timOut ) {
       oled.clear(); Timer1.start();
-      if(panel.more)  { oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
-      else            { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
+      if(pnl.cal) { oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
+      else        { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
       if(pll.locked()) oled.print('+'); else oled.print('-');
       if(rf()) oled.print('+'); else oled.print('-');
-      switch(panel.axis) {
+      // I'm having an inherititance<N> mental block. N is getting in the way.
+      switch(pnl.axs) {
         default:
-        case Axis::HOLD:  break;
-        case Axis::FREQ:  oled.println("Frequency");  panel.Freq.disp(oled);  break;
-        case Axis::AMPL:  oled.println("Power");      panel.Power.disp(oled); break;
-        case Axis::PHAS:  oled.println("Phase");      panel.Angle.disp(oled); break;
-        case Axis::REF:   oled.println("RefOsc");     panel.Ref.disp(oled,panel.more); break; }
-      if(panel.more && (Axis::HOLD != panel.axis)) {
+        case Axis::HOLD:                                                          break;
+        case Axis::FREQ:  oled.println("Frequency");  pnl.Frq.disp(oled);         break;
+        case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled);         break;
+        case Axis::PHAS:  oled.println("Phase");      pnl.Lag.disp(oled);         break;
+        case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,pnl.cal); break; }
+      if(pnl.cal && (Axis::HOLD != pnl.axs)) {
         oled.print("rpwr: ");   oled.print(pll().rpwr);
-        oled.print(" rdiv: ");  oled.print(pll().rdiv);
-        oled.print("\ndnom: "); oled.print(pll().dnom);
-        oled.print(" prop: ");  oled.print(pll().prop);
-        oled.print("\nwhol: "); oled.print(pll().whol);
-        oled.print(" numr: ");  oled.print(pll().numr);
-        oled.print("\n pfd: "); oled.print(resolver.pfd());
+        oled.print(" rdiv: ");  oled.println(pll().rdiv);
+        oled.print("dnom: ");   oled.print(pll().dnom);
+        oled.print(" prop: ");  oled.println(pll().prop);
+        oled.print("whol: ");   oled.print(pll().whol);
+        oled.print(" numr: ");  oled.println(pll().numr);
+        oled.print(" pfd: ");   oled.print(resolver.pfd());
             #ifdef DEBUG
         pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
         pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
         pr("pfd:"); Serial.print(resolver.pfd()); pr(' ');
-        switch(panel.axis) {
+        switch(pnl.axs) {
           default:
           case Axis::HOLD:
-          case Axis::FREQ:  panel.Freq.pr();  break;
-          case Axis::AMPL:  panel.Power.pr(); break;
-          case Axis::PHAS:  panel.Angle.pr(); break;
-          case Axis::REF:   panel.Ref.pr();   break; } pr('\n');
+          case Axis::FREQ:  pnl.Frq.pr(); break;
+          case Axis::AMPL:  pnl.Pwr.pr(); break;
+          case Axis::PHAS:  pnl.Lag.pr(); break;
+          case Axis::REF:   pnl.Ref.pr(); break; } pr('\n');
             #endif
         }
-      displayUpdate = blank = 0; }
-;   if( blank ) { Timer1.stop(); oled.clear(); blank = 0; snooz(); }
-;   if( hasAss && !digitalRead(USR) ) { // service the human
-      if( auto action{btns(ass)} ) {
-        while( btns(ass) == action ); displayUpdate = 1;
-        if(shft != action) switch(action) {
-          default:    break;
-          case save:  if(hasXmem) {
-                        recall.check = checkMem(&panel, sizeof(panel));
-                        xmem.writeObject(0,recall); } break;
-          case incr:  deviceUpdate = 1; switch(panel.axis) {
-                        default:
-                        case Axis::HOLD:  deviceUpdate = 0; break;
-                        case Axis::FREQ:  panel.Freq(incr);   break;
-                        case Axis::AMPL:  panel.Power(incr);  break;
-                        case Axis::PHAS:  panel.Angle(incr);  break;
-                        case Axis::REF:   if(panel.more) panel.Ref(incr); 
-                                          else deviceUpdate = 0; break; } break;
-          case decr:  deviceUpdate = 1; switch(panel.axis) {
-                        default:
-                        case Axis::HOLD:  deviceUpdate = 0; break;
-                        case Axis::FREQ:  panel.Freq(decr); break;
-                        case Axis::AMPL:  if(panel.Power()) panel.Power(decr); break;
-                        case Axis::PHAS:  if(1<panel.Angle()) panel.Angle(decr); break;
-                        case Axis::REF:   if(panel.more) panel.Ref(decr);
-                                          else deviceUpdate = 0; break; } break;
-          case left:  switch(panel.axis) {
-                        default:
-                        case Axis::HOLD:  break;
-                        case Axis::FREQ:  panel.Freq(left);   break;
-                        case Axis::AMPL:  panel.Power(left);  break;
-                        case Axis::PHAS:  panel.Angle(left);  break;
-                        case Axis::REF:   if(panel.more) panel.Ref(left); break; } break;
-          case rght:  switch(panel.axis) {
-                        default:
-                        case Axis::HOLD:  break;
-                        case Axis::FREQ:  panel.Freq(rght);   break;
-                        case Axis::AMPL:  panel.Power(rght);  break;
-                        case Axis::PHAS:  panel.Angle(rght);  break;
-                        case Axis::REF:   if(panel.more) panel.Ref(rght); break; } break;
-          case next:  panel.more = !panel.more; break;
-          case prev:  ++panel.axis; break;
-          case xmit:  rf( panel.xmit = !rf() ); break; } } } } }
+      toHuman = timOut = 0; }
+;   if( timOut ) { timOut = 0; Timer1.stop(); oled.clear(); snooz(); }
+;   if( hasSS && !digitalRead(USR) ) { // service the human
+      if( auto action{ btns(ss) } ) { toHuman = 1; if(sft != action) switch(action) {
+          default:                                                              break;
+          case    inc:  toDevice = 1;
+                    switch(pnl.axs) {
+                      default:          // fall thru
+                      case Axis::HOLD:  toDevice = 0;                 break;
+                      case Axis::FREQ:  pnl.Frq(inc);                 break;
+                      case Axis::AMPL:  pnl.Pwr(inc);                 break;
+                      case Axis::PHAS:  pnl.Lag(inc);                 break;
+                      case Axis::REF:   if(pnl.cal)     pnl.Ref(inc);
+                                        else            toDevice = 0; break; }  break;
+          case    dec:  toDevice = 1;
+                    switch(pnl.axs) {
+                      default:          // fall thru
+                      case Axis::HOLD:                  toDevice = 0; break;
+                      case Axis::FREQ:                  pnl.Frq(dec); break;
+                      case Axis::AMPL:  if(pnl.Pwr())   pnl.Pwr(dec); break;
+                      case Axis::PHAS:  if(1<pnl.Lag()) pnl.Lag(dec); break;
+                      case Axis::REF:   if(pnl.cal)     pnl.Ref(dec);
+                                        else            toDevice = 0; break; }  break;
+          case    lft:  switch(pnl.axs) {
+                      default:          // fall thru
+                      case Axis::HOLD:                                break;
+                      case Axis::FREQ:                  pnl.Frq(lft); break;
+                      case Axis::AMPL:                  pnl.Pwr(lft); break;
+                      case Axis::PHAS:                  pnl.Lag(lft); break;
+                      case Axis::REF:   if(pnl.cal)     pnl.Ref(lft); break; }  break;
+          case    rgt:  switch(pnl.axs) {
+                      default:          // fall thru
+                      case Axis::HOLD:                                break;
+                      case Axis::FREQ:                  pnl.Frq(rgt); break;
+                      case Axis::AMPL:                  pnl.Pwr(rgt); break;
+                      case Axis::PHAS:                  pnl.Lag(rgt); break;
+                      case Axis::REF:   if(pnl.cal)     pnl.Ref(rgt); break; }  break;
+          case sft+inc: if(hasX) {  Checked.check = ckMem(&pnl, sizeof(pnl));
+                                    X.writeObject(0,Checked); }                 break;
+          case sft+rgt: pnl.cal = !pnl.cal;                                     break;
+          case sft+lft: ++pnl.axs;                                              break;
+          case sft+dec: rf( pnl.xmt = !rf() );                                  break; } } } } }
