@@ -31,7 +31,7 @@ prevents (unShifted) modification. Displayable are Pll model
 internal state values. These are made availabe both on the
 display and out the serial port (115200 baud) when the
 error correction (calibration) axis is selected. The runtime
-code size is large (26k), but it handles per digit editable
+code size is large (27k), but it handles per digit editable
 numbers of specified length capable of representing a 2**64
 magnitude, with ease. The human interface elements (display,
 print, editable persistent settings) sum to more than half
@@ -67,6 +67,10 @@ assembly to the ATMEGA328 host.
               |---------------|
  metro_mini 5V---wire---ADF435x module (coaxial center pin)
  PID5740_SeeSaw_INT_PIN---wire---metro_mini_D2 <- REQUIRED!
+ The pll will be loaded with either saved (if eemem present)
+ or defaults if the SeeSaw module is not present. The host
+ uses Ext Interrupt 0 (D2). Buttons are ignored if this
+ signal is not connected.
 ------------------------------------------------------------
 This code is a single pll version only. A second pll would
 be accommodated with {le, ld} on {D9, D8}, respectively. And

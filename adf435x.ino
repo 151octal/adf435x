@@ -17,7 +17,7 @@
   #define DEBUG
   //  #undef DEBUG
   using i64 = long long;
-  using Ss = Adafruit_seesaw;
+  using AFSS = Adafruit_seesaw;
   using DBL = double;
   using OLED = SSD1306AsciiWire;  // Because the Adafruit library is too big. (both)
   using XMEM = Adafruit_EEPROM_I2C;
@@ -88,7 +88,7 @@ namespace Hardware {
     case Axis::REF:  axs = Axis::HOLD;  break; } return axs; }
   enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
   constexpr auto btnMask{ sft + inc + lft + dec + rgt };
-  const auto btns{ [](Ss& ss, const u32& msk = btnMask){ return msk^ss.digitalReadBulk(msk); } };
+  const auto btns{ [](AFSS& ss,const u32& msk = btnMask){ return msk^ss.digitalReadBulk(msk); } };
   enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
@@ -386,12 +386,12 @@ auto setup() -> void {
 ; Resolver resolver(PFD, IOTA);
   struct Panel { Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag; bool xmt, cal; Axis axs; };
   struct { Panel pnl; u16 check; } Checked; Panel& pnl{ Checked.pnl };
-  XMEM X; bool hasX{ X.begin() }; if( hasX ) X.readObject(0, Checked);
+  XMEM xm; bool hasXM{ xm.begin() }; if( hasXM ) xm.readObject(0, Checked);
   if( ckMem(&pnl, sizeof(pnl)) != Checked.check ) { // default values
     pnl.Ref(OSC); pnl.Pwr(minus4); pnl.Frq(34*MHz + 375*kHz); pnl.Lag(1);
     pnl.xmt = ON, pnl.cal = ON; pnl.axs = Axis::REF; };
     rf(pnl.xmt);
-  Ss ss; while(!ss.begin()); bool hasSS{ 5740 == ((ss.getVersion() >> 16) & 0xFFFF) };
+  AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
   if(hasSS) { ss.pinModeBulk(btnMask, INPUT_PULLUP); ss.setGPIOInterrupts(btnMask, 1); }
   for( bool toDevice{ON}, toHuman{ON}; ON; ) {
 ;   if( toDevice ) { toDevice = 0;
@@ -406,11 +406,12 @@ auto setup() -> void {
       pll.flush(); }
 ;   if( toHuman && !timOut ) {
       oled.clear(); Timer1.start();
-      if(pnl.cal) { oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
-      else        { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
+      if(pnl.cal) {
+                    oled.setFont(Adafruit5x7);  oled.setLetterSpacing(1); }
+            else  { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
       if(pll.locked()) oled.print('+'); else oled.print('-');
       if(rf()) oled.print('+'); else oled.print('-');
-      // I'm having an inherititance<N> mental block. N is getting in the way.
+        // I'm having an inherititance<N> mental block. N is getting in my way.
       switch(pnl.axs) {
         default:
         case Axis::HOLD:                                                          break;
@@ -440,8 +441,8 @@ auto setup() -> void {
             #endif
         }
       toHuman = timOut = 0; }
-;   if( timOut ) { timOut = 0; Timer1.stop(); oled.clear(); snooz(); /* We are asleep here. */ }
-;   if( hasSS && !digitalRead(USR) ) { // (Not necessarily just now,) Awake. Service the human.
+;   if( timOut ) { timOut = 0; Timer1.stop(); oled.clear(); snooz(); /* Awake here, just now. */ }
+;   if( hasSS && !digitalRead(USR) ) { // Service the human.
       if( auto action{ btns(ss) } ) { toHuman = 1; if(sft != action) switch(action) {
           default:                                                              break;
           case    inc:  toDevice = 1;
@@ -476,8 +477,8 @@ auto setup() -> void {
                       case Axis::AMPL:                  pnl.Pwr(rgt); break;
                       case Axis::PHAS:                  pnl.Lag(rgt); break;
                       case Axis::REF:   if(pnl.cal)     pnl.Ref(rgt); break; }  break;
-          case sft+inc: if(hasX) {  Checked.check = ckMem(&pnl, sizeof(pnl));
-                                    X.writeObject(0,Checked); }                 break;
+          case sft+inc: if(hasXM) { Checked.check = ckMem(&pnl, sizeof(pnl));
+                                    xm.writeObject(0,Checked); }                break;
           case sft+rgt: pnl.cal = !pnl.cal;                                     break;
           case sft+lft: ++pnl.axs;                                              break;
           case sft+dec: rf( pnl.xmt = !rf() );                                  break; } } } } }
