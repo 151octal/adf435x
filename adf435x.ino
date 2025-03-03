@@ -34,9 +34,6 @@ namespace Hardware {
   // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
   enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD_A = 7, LE_A = 10 };
   enum UNIT { A, /* B, */ _end };
-  volatile bool timOut{ 0 };
-  constexpr auto btnMsk{ 0x3FUL };
-  const auto btns{ [](Ss& ss, const u32& msk = btnMsk){ return msk^ss.digitalReadBulk(msk); } };
   const auto ckMem = [](void* vp, size_t n) {
     auto p{ static_cast<u8*>(vp) };
     u16 sum{0}; while(n--) { sum += *(p++); sum %= 255; } return sum; };
@@ -44,45 +41,23 @@ namespace Hardware {
     , [B] = { LE_B, LD_B } };*/
   static_assert(UNIT::_end == sizeof(ctrl) / sizeof(ctrl[0]));
   auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
-  auto Trigger{ [](){ timOut = 1; } };  // Timer1 ISR target
+  auto Nudge{ [](){ sleep_disable(); } };
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
-  auto Nudge{ [](){ sleep_disable(); } };
   auto snooz() -> void {  // lambda hostile macros. Another reason to promulgate them not.
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
     sleep_enable();
     attachInterrupt(digitalPinToInterrupt(USR), Nudge, LOW);
     sleep_mode();
     detachInterrupt(digitalPinToInterrupt(USR));  }
+  volatile bool timOut{ 0 };
+  auto Trigger{ [](){ timOut = 1; } };  // Timer1 ISR target
   auto tx = [](const PIN& le, void *pByte, int nByte){
     auto p{ static_cast<u8*>(pByte) + nByte };      // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      // Data is latched on the rising edge.
 } namespace HW = Hardware; namespace Synthesis {
- enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum class Axis : size_t { HOLD, FREQ, AMPL, PHAS, REF };
-  Axis& operator++(Axis& axs) { switch(axs) {
-    case Axis::HOLD: axs = Axis::FREQ;  break;
-    case Axis::FREQ: axs = Axis::PHAS;  break;
-    case Axis::PHAS: axs = Axis::AMPL;  break;
-    case Axis::AMPL: axs = Axis::REF;   break;
-    case Axis::REF:  axs = Axis::HOLD;  break; } return axs; }
-  enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
-  enum  ClockingMode { dividerOff = 0, fastLock, phResync };
-  enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
-  enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
-  constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
-  enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
-  enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
-  auto  log2(const DBL& arg) -> DBL { return log10(arg) / log10(2); };
-  enum  LockDetectFunction{ fracN = 0, intN };
-  enum  MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
-  enum  NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
-  constexpr auto  OVERLAYED_REGISTERS{ 6 };
-  enum  PRSCL { four5ths = 0, eight9ths };
-  enum  PDpolarity { negative = 0, positive };
-  const auto power{ [](const u8 r, u8 e){ i64 rv{1}; while(e--) rv *= r; return rv; } };
  constexpr  i64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz };
   constexpr i64   MAX_VCO{ 4400000000 };            // 4400 MHz.
   constexpr  u32  MIN_VCO{ MAX_VCO / 2 };           // 2200 MHz.
@@ -95,13 +70,38 @@ namespace Hardware {
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // Pick a modulus (not divisible by {2,3}).
   static_assert((4096>MOD) && (MOD%2) && (MOD%3));  // 12 bits with spur avoidance.
   constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
- constexpr   u16  IOTA{ 1000 };                     // Choose IOTA such that R_COUNT is exact.
+  constexpr   u16  IOTA{ 1000 };                    // Choose IOTA such that R_COUNT is exact.
   constexpr auto  R_COUNT{ u16(OSC / IOTA / MOD) }; // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  TGLR{ ON }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
  constexpr  auto  PFD{ DBL(OSC) * (1+DBLR) / (1+TGLR) / R_COUNT };
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
-  static_assert((MAX_PFD >= PFD));
+  static_assert((MAX_PFD >= PFD) && (MIN_PFD <= PFD));
+ enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
+  enum class Axis : size_t { HOLD, FREQ, AMPL, PHAS, REF };
+  Axis& operator++(Axis& axs) { switch(axs) {
+    case Axis::HOLD: axs = Axis::FREQ;  break;
+    case Axis::FREQ: axs = Axis::PHAS;  break;
+    case Axis::PHAS: axs = Axis::AMPL;  break;
+    case Axis::AMPL: axs = Axis::REF;   break;
+    case Axis::REF:  axs = Axis::HOLD;  break; } return axs; }
+  enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
+  constexpr auto btnMask{ sft + inc + lft + dec + rgt };
+  const auto btns{ [](Ss& ss, const u32& msk = btnMask){ return msk^ss.digitalReadBulk(msk); } };
+  enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
+  enum  ClockingMode { dividerOff = 0, fastLock, phResync };
+  enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
+  constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
+  enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
+  enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
+  auto  log2(const DBL& arg) -> DBL { return log10(arg) / log10(2); };
+  enum  LockDetectFunction{ fracN = 0, intN };
+  enum  MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
+  enum  NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
+  constexpr auto  OVERLAYED_REGISTERS{ 6 };
+  enum  PRSCL { four5ths = 0, eight9ths };
+  enum  PDpolarity { negative = 0, positive };
+  const auto power{ [](const u8 r, u8 e){ i64 rv{1}; while(e--) rv *= r; return rv; } };
 enum Identifier : u8 {
     // Human readable register 'field' identifiers.
     // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
@@ -391,7 +391,7 @@ auto setup() -> void {
     pnl.xmt = ON, pnl.cal = ON; pnl.axs = Axis::REF; };
     rf(pnl.xmt);
   Ss ss; while(!ss.begin()); bool hasSS{ 5740 == ((ss.getVersion() >> 16) & 0xFFFF) };
-  if(hasSS) { ss.pinModeBulk(btnMsk, INPUT_PULLUP); ss.setGPIOInterrupts(btnMsk, 1); }
+  if(hasSS) { ss.pinModeBulk(btnMask, INPUT_PULLUP); ss.setGPIOInterrupts(btnMask, 1); }
   for( bool toDevice{ON}, toHuman{ON}; ON; ) {
 ;   if( toDevice ) { toDevice = 0;
       pnl.Ref(constrain(pnl.Ref(), 9*MHz, MAX_PFD));
@@ -446,10 +446,10 @@ auto setup() -> void {
           case    inc:  toDevice = 1;
                     switch(pnl.axs) {
                       default:          // fall thru
-                      case Axis::HOLD:  toDevice = 0;                 break;
-                      case Axis::FREQ:  pnl.Frq(inc);                 break;
-                      case Axis::AMPL:  pnl.Pwr(inc);                 break;
-                      case Axis::PHAS:  pnl.Lag(inc);                 break;
+                      case Axis::HOLD:                  toDevice = 0; break;
+                      case Axis::FREQ:                  pnl.Frq(inc); break;
+                      case Axis::AMPL:                  pnl.Pwr(inc); break;
+                      case Axis::PHAS:                  pnl.Lag(inc); break;
                       case Axis::REF:   if(pnl.cal)     pnl.Ref(inc);
                                         else            toDevice = 0; break; }  break;
           case    dec:  toDevice = 1;
