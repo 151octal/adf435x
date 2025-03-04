@@ -16,9 +16,10 @@ Recognized sequences:
     1st (unShifted): 1)Press 1st 2)Release 1st
     2nd   (Shifted): 1)Press hold SHFT 2)Press 2nd
      INC     | INC: Increment    | SFT+INC: Save
- LFT SFT RGT | LFT: Cursor left  | SFT+LFT: Next Axis
+ LFT SFT RGT | LFT: Cursor left  | SFT+LFT: Available
      DEC     | DEC: Decrement    | SFT+DEC: Toggle RF
              | RGT: Cursor right | SFT+RGT: Calibration
+    KNOB: Next/Prev Axis
 ------------------------------------------------------------
 Accomodated are 1) optional i2c serial eemem for overide of
 defaults with saved settings atstartup, 2) oled for
@@ -31,7 +32,7 @@ prevents (unShifted) modification. Displayable are Pll model
 internal state values. These are made availabe both on the
 display and out the serial port (115200 baud) when the
 error correction (calibration) axis is selected. The runtime
-code size is large (27k), but it handles per digit editable
+code size is large (28k), but it handles per digit editable
 numbers of specified length capable of representing a 2**64
 magnitude, with ease. The human interface elements (display,
 print, editable persistent settings) sum to more than half
