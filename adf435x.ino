@@ -9,6 +9,7 @@
   #include <Arduino.h>
   #include <ArxContainer.h>
   #include <avr/sleep.h>
+  #include <avr/wdt.h>
   #include "SSD1306Ascii.h"
   #include "SSD1306AsciiWire.h"
   #include <SPI.h>
@@ -46,6 +47,7 @@ namespace Hardware {
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
     sleep_enable();
     attachInterrupt(digitalPinToInterrupt(USR), Nudge, LOW);
+    EIFR = bit(INTF0);
     sleep_mode();
     detachInterrupt(digitalPinToInterrupt(USR));  }
   volatile bool timOut{ 0 };
@@ -424,10 +426,10 @@ auto setup() -> void {
         // I'm having an inherititance<N> mental block. N is getting in my way.
       switch(pnl.axs) {
         default:
-        case Axis::FREQ:  oled.println("Frequency");  pnl.Frq.disp(oled,'\n',pnl.hld);  break;
-        case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled,'\n',pnl.hld);  break;
-        case Axis::PHAS:  oled.println("Prop");       pnl.Lag.disp(oled,'\n',pnl.hld);  break;
-        case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,'\n',pnl.hld);  break; }
+        case Axis::FREQ:  oled.println("Frequency");  pnl.Frq.disp(oled,'\n',!pnl.hld);  break;
+        case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled,'\n',!pnl.hld);  break;
+        case Axis::PHAS:  oled.println("Prop");       pnl.Lag.disp(oled,'\n',!pnl.hld);  break;
+        case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,'\n',!pnl.hld);  break; }
       if(pnl.dtl) {
         oled.print("rpwr: ");   oled.print(pll().rpwr);
         oled.print(" rdiv: ");  oled.println(pll().rdiv);
