@@ -16,9 +16,9 @@ Recognized sequences:
     1st (unShifted): 1)Press 1st 2)Release 1st
     2nd   (Shifted): 1)Press hold SHFT 2)Press 2nd
      INC     | INC: Increment    | SFT+INC: Save
- LFT SFT RGT | LFT: Cursor left  | SFT+LFT: Available
+ LFT SFT RGT | LFT: Cursor left  | SFT+LFT: Toggle Edit
      DEC     | DEC: Decrement    | SFT+DEC: Toggle RF
-             | RGT: Cursor right | SFT+RGT: Calibration
+             | RGT: Cursor right | SFT+RGT: Details
     KNOB: Next/Prev Axis
 ------------------------------------------------------------
 Accomodated are 1) optional i2c serial eemem for overide of
@@ -28,19 +28,12 @@ an Adafruit "ANO"encoder i2c SeeSaw module for (optionally
 persitent) runtime settings modification. Ajustable are
 Power, Frequency, Phase, and Oscillator frequency (for
 reference error correction), with a Hold feature which
-prevents (unShifted) modification. Displayable are Pll model
-internal state values. These are made availabe both on the
-display and out the serial port (115200 baud) when the
-error correction (calibration) axis is selected. The runtime
-code size is large (28k), but it handles per digit editable
-numbers of specified length capable of representing a 2**64
-magnitude, with ease. The human interface elements (display,
-print, editable persistent settings) sum to more than half
-of the code size. Possible are the (unimplemented) sum of
-adjacent buttons such as LFT+INC. Communication over SPI
-occurs at full speed. If user inactivity exceeds 10 seconds,
-the oled is extinguished and the cpu enters low power sleep
-mode.
+prevents digit editing. Displayable are Pll model internal
+state values. These are made availabe both on the display
+and out the serial port (115200 baud) when Details are
+selected. Communication over SPI occurs at full speed.
+If user inactivity exceeds 10 seconds, the oled is
+extinguished and the cpu enters low power sleep mode.
 ------------------------------------------------------------
 Wire-wrap, limit to 5cm, and common mode choke the aggregate
 of (qty:8) wires connecting the ADF435x module. Configure
@@ -72,14 +65,6 @@ assembly to the ATMEGA328 host.
  or defaults if the SeeSaw module is not present. The host
  uses Ext Interrupt 0 (D2). Buttons are ignored if this
  signal is not connected.
-------------------------------------------------------------
-This code is a single pll version only. A second pll would
-be accommodated with {le, ld} on {D9, D8}, respectively. And
-sharing their {REF, 5v, clk, dat, pdr, GND} signals. This
-scheme does not preclude the possibilty of supporting two
-plls. Be aware that there exist ADF435x modules that do not
-have the REF signal brought out on (what is a dummy)
-connector. That is, the REF connector is not connected.
 ------------------------------------------------------------
 The LED (on D13) appears to be in contention with the default
 SPI clock line and is not easily open circuited. Look,
