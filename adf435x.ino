@@ -1,5 +1,5 @@
-;
-  /*  https://github.com/151octal/adf435x/blob/main/LICENSE
+; /*
+  https://github.com/151octal/adf435x/blob/main/LICENSE
   ©rwHelgeson[kd9fww] 2024, 2025.  ADF435x using ATMEGA328 hardware SPI.
   https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source.
   https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
