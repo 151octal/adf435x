@@ -35,11 +35,18 @@
 namespace Hardware {
   // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
   enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD = 7, LE = 10 };
-  //enum UNIT { A, /* B, */ _end };
   const auto ckMem = [](void* vp, size_t n) {
     auto p{ static_cast<u8*>(vp) };
     u16 sum{0}; while(n--) { sum += *(p++); sum %= 255; } return sum; };
   auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
+  volatile bool dog{ 0 };
+  ISR(WDT_vect) { dog = 1; }
+  auto pooch() -> void {
+    //ADCSRA = 0;
+    MCUSR = 0;
+    WDTCSR = bit(WDCE) | bit(WDE);
+    WDTCSR = (bit(WDIE)) | (bit(WDP3)) | (bit(WDP0));
+    wdt_reset();  }
   auto Nudge{ [](){ sleep_disable(); } };
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
@@ -341,19 +348,23 @@ auto setup() -> void {
     // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
     // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP); // ignored
-  pinMode(A0, INPUT_PULLUP);                        // thermistor bias (20K ohm)
-  Wire.begin();  Wire.setClock(400000L);
-  SPI.begin();
-  Timer1.initialize(10000000UL); Timer1.attachInterrupt(Trigger); Timer1.start();
+    pinMode(A0, INPUT_PULLUP);                        // available
+  pinMode(A1, INPUT_PULLUP);                        // thermistor bias
+    pinMode(A2, INPUT_PULLUP);                        // short to A1
+    pinMode(A3, INPUT_PULLUP);                        // short to A2
+      pinMode(A4, INPUT_PULLUP);  pinMode(A5, INPUT_PULLUP);
+  Wire.begin();  Wire.setClock(400000L);  SPI.begin();
+  Timer1.initialize(3000000UL); Timer1.attachInterrupt(Trigger); Timer1.start();
     #ifdef DEBUG
   Serial.begin(115200L);
     #endif
-  OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0x40);
-  ADCSRA =  bit(ADEN);   // turn ADC on
+  OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0x20);
+; ADCSRA =  (bit(ADEN));   // turn ADC on
   ADCSRA |= bit(ADPS0) | bit(ADPS1) | bit(ADPS2);  // Prescaler of 128
     /*  //ADMUX = (bit(REFS0) | bit(MUX3) | bit(MUX2) | bit(MUX1)); // internal reference
       ADMUX = (bit(REFS0) | bit(REFS1) | 0x08);    // temperature sensor
       delay(20); bitSet(ADCSRA, ADSC);  while (bit_is_set(ADCSRA, ADSC));*/
+  analogReference(DEFAULT);  static DBL kT{ DBL(analogRead(A1)) };
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
@@ -389,7 +400,7 @@ auto setup() -> void {
   pll( I::rfSoftEnable, ON );                                                             // (27)
   pll( I::auxOutPwr, minus4 );                                                            // (28)
   pll( I::auxOutEnable, OFF );            // Pin not connected.                              (29)
-  pll( I::muteTillLD, ON );                                                               // (30)
+  pll( I::muteTillLD, OFF );              // ON: contrary to wdt update scheme            // (30)
   pll( I::vcoPwrDown, OFF );                                                              // (31)
   pll( I::bndSelClkDv, u8(ceil(DBL(PFD) / MIN_PFD)) );                                    // (32)
   pll( I::rfFBselect, !Feedback );  // EEK! Why the negation? Perhaps I've been daVinci'd.   (33)
@@ -405,7 +416,7 @@ auto setup() -> void {
   AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
   long knob; if(hasSS) {  knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
        /**/               ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1); }
-  Resolver resolver(pfdf(pnl.Ref()), IOTA);  rf(pnl.xmt);
+  Resolver resolver(pfdf(pnl.Ref()), IOTA);  rf(pnl.xmt); pooch();
   for( bool toDevice{ON}, toHuman{ON}; ON; ) {
 /**/if( toDevice ) { toDevice = 0;
       pnl.Ref(constrain(pnl.Ref(), 9*MHz, MAX_PFD));
@@ -426,32 +437,34 @@ auto setup() -> void {
         // I'm having an inherititance<N> mental block. N is getting in my way.
       switch(pnl.axs) {
         default:
-        case Axis::FREQ:  oled.println("Frequency");  pnl.Frq.disp(oled,'\n',!pnl.hld);  break;
-        case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled,'\n',!pnl.hld);  break;
-        case Axis::PHAS:  oled.println("Prop");       pnl.Lag.disp(oled,'\n',!pnl.hld);  break;
-        case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,'\n',!pnl.hld);  break; }
+        case Axis::FREQ:  oled.println("Frequency");  pnl.Frq.disp(oled,'\n',!pnl.hld); break;
+        case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled,'\n',!pnl.hld); break;
+        case Axis::PHAS:  oled.println("Prop");       pnl.Lag.disp(oled,'\n',!pnl.hld); break;
+        case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,'\n',!pnl.hld); break; }
       if(pnl.dtl) {
-        oled.print("rpwr: ");   oled.print(pll().rpwr);
-        oled.print(" rdiv: ");  oled.println(pll().rdiv);
-        oled.print("dnom: ");   oled.print(pll().dnom);
-        oled.print(" prop: ");  oled.println(pll().prop);
-        oled.print("whol: ");   oled.print(pll().whol);
-        oled.print(" numr: ");  oled.println(pll().numr);
-        oled.print(" pfd: ");   oled.println(resolver.pfd(),4);
-        oled.print("  kT: ");   oled.println(analogRead(A0));
-            #ifdef DEBUG
-        pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
-        pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
-        pr("pfd:"); Serial.print(resolver.pfd(),4); pr(' ');
-        pr("kT:",analogRead(A0));
         switch(pnl.axs) {
           default:
           case Axis::FREQ:  pnl.Frq.pr(); break;
           case Axis::AMPL:  pnl.Pwr.pr(); break;
           case Axis::PHAS:  pnl.Lag.pr(); break;
-          case Axis::REF:   pnl.Ref.pr(); break; } pr('\n');
+          case Axis::REF:   pnl.Ref.pr(); break; }
+            #ifdef DEBUG
+        Serial.print(kT,1);  pr(' ');
+        pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
+        pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr,'\n');
+          //pr("pfd:"); Serial.print(resolver.pfd(),4); pr(' ');
             #endif
-        }
+        } /*
+            oled.print("rpwr: ");   oled.print(pll().rpwr);
+            oled.print(" rdiv: ");  oled.println(pll().rdiv);
+            oled.print("dnom: ");   oled.print(pll().dnom);
+            oled.print(" prop: ");  oled.println(pll().prop);
+            oled.print("whol: ");   oled.print(pll().whol);
+            oled.print(" numr: ");  oled.println(pll().numr);
+            oled.print(" pfd: ");   oled.println(resolver.pfd(),4);
+            oled.print(tL,2); oled.print(' ');
+            oled.print(kT,2); oled.print(' ');
+            oled.print(tH,2); */
       toHuman = timOut = 0; }
 /**/if( timOut ) { timOut = 0; oled.clear(); snooz(); /* Awake. */ }
 /**/if( hasSS ) { if( !digitalRead(USR) ) { // Service the human.
@@ -494,4 +507,8 @@ auto setup() -> void {
               case sft+rgt: pnl.hld = !pnl.hld;                       break; } }
         else { if(auto diff{ ss.getEncoderPosition() - knob })  { toHuman = 1; // encdr intr
           if(0 < diff) ++pnl.axs; else --pnl.axs;
-          knob = ss.getEncoderPosition(); } } } } } }
+          knob = ss.getEncoderPosition(); } } } }
+/**/if(dog) { dog = 0; const auto alpha{0.91};
+      auto ref{ map(kT,453,460,24999840,24999790) };
+      if(pnl.Ref() != ref) { pnl.Ref( ref ); toHuman = toDevice = 1; }
+      kT = kT - (alpha * (kT - analogRead(A1)));  }    } }
