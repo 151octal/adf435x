@@ -1,8 +1,10 @@
-/*  ©rwHelgeson[kd9fww] 2024, 2025.  ADF435x using ATMEGA328 hardware SPI.
-    https://github.com/151octal/adf435x/blob/main/LICENSE
-    https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source code.
-    https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
-    https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
+;
+  /*  https://github.com/151octal/adf435x/blob/main/LICENSE
+  ©rwHelgeson[kd9fww] 2024, 2025.  ADF435x using ATMEGA328 hardware SPI.
+  https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source.
+  https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
+  https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
+  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
   #include "Adafruit_EEPROM_I2C.h"
   #include <Adafruit_GFX.h>
   #include "Adafruit_seesaw.h"
@@ -24,16 +26,16 @@
   using XMEM = Adafruit_EEPROM_I2C;
   enum Enable { OFF = 0, ON = 1 };
       #ifdef DEBUG
-  auto pr( const char& cc ) -> const size_t { return Serial.print(cc); }  // Shorthand.
-  auto pr( const   u8& uc ) -> const size_t { return Serial.print(uc); }
-  auto pr( const char* const s ) -> const size_t { return Serial.print(s); }
+  constexpr auto& S{Serial};  // Shorthand.
+  auto pr( const char& cc ) -> const size_t { return S.print(cc); }
+  auto pr( const   u8& uc ) -> const size_t { return S.print(uc); }
+  auto pr( const char* const s ) -> const size_t { return S.print(s); }
   auto pr( const u16& arg, char term = 0, int num = DEC ) -> const size_t {
-    return Serial.print(arg, num) + pr(term); }
+    return S.print(arg, num) + pr(term); }
   auto pr( const char* const s, const u16& arg, char term = ' ', int num = DEC ) -> const size_t {
     return pr(s) + pr(arg, term, num); }
       #endif
 namespace Hardware {
-  // See https://github.com/151octal/adf435x/blob/main/README.md for circuitry notes.
   enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD = 7, LE = 10 };
   const auto ckMem = [](void* vp, size_t n) {
     auto p{ static_cast<u8*>(vp) };
@@ -42,7 +44,6 @@ namespace Hardware {
   volatile bool dog{ 0 };
   ISR(WDT_vect) { dog = 1; }
   auto pooch() -> void {
-    //ADCSRA = 0;
     MCUSR = 0;
     WDTCSR = bit(WDCE) | bit(WDE);
     WDTCSR = (bit(WDIE)) | (bit(WDP3)) | (bit(WDP0));
@@ -354,17 +355,12 @@ auto setup() -> void {
     pinMode(A3, INPUT_PULLUP);                        // short to A2
       pinMode(A4, INPUT_PULLUP);  pinMode(A5, INPUT_PULLUP);
   Wire.begin();  Wire.setClock(400000L);  SPI.begin();
-  Timer1.initialize(3000000UL); Timer1.attachInterrupt(Trigger); Timer1.start();
+  Timer1.initialize(5000000UL); Timer1.attachInterrupt(Trigger); Timer1.start();
     #ifdef DEBUG
-  Serial.begin(115200L);
+  S.begin(115200L);
     #endif
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0x20);
-; ADCSRA =  (bit(ADEN));   // turn ADC on
-  ADCSRA |= bit(ADPS0) | bit(ADPS1) | bit(ADPS2);  // Prescaler of 128
-    /*  //ADMUX = (bit(REFS0) | bit(MUX3) | bit(MUX2) | bit(MUX1)); // internal reference
-      ADMUX = (bit(REFS0) | bit(REFS1) | 0x08);    // temperature sensor
-      delay(20); bitSet(ADCSRA, ADSC);  while (bit_is_set(ADCSRA, ADSC));*/
-  analogReference(DEFAULT);  static DBL kT{ DBL(analogRead(A1)) };
+  analogReference(DEFAULT); auto kT{ analogRead(A1) };  // prime the adc pump
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
@@ -407,17 +403,17 @@ auto setup() -> void {
   pll( I::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
   pll.phAdj(OFF);
-; struct Panel { Num<8> Ref; Num<1> Pwr; Num<10> Frq; Num<3> Lag; Axis axs; bool xmt, dtl, hld; };
+; AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
+  long knob; if(hasSS) {  knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
+  /**/                    ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1); }
+  struct Panel { Num<8> Ref; Num<1> Pwr; Num<10> Frq; Num<3> Lag; Axis axs; bool xmt, dtl, hld; };
   struct { Panel pnl; u16 sum; } Mem; Panel& pnl{ Mem.pnl };
   XMEM xm; bool hasXM{ xm.begin() }; if( hasXM ) xm.readObject(0, Mem);
   if( ckMem(&pnl, sizeof(pnl)) != Mem.sum ) { // default values
     pnl.Ref(OSC); pnl.Pwr(minus4); pnl.Frq(34*MHz + 375*kHz); pnl.Lag(1);
     pnl.axs = Axis::REF; pnl.xmt = ON, pnl.dtl = ON; pnl.hld = OFF; };
-  AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
-  long knob; if(hasSS) {  knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
-       /**/               ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1); }
-  Resolver resolver(pfdf(pnl.Ref()), IOTA);  rf(pnl.xmt); pooch();
-  for( bool toDevice{ON}, toHuman{ON}; ON; ) {
+  Resolver resolver(pfdf(pnl.Ref()), IOTA); rf(pnl.xmt); pooch(); auto kTn{ 0U };
+; for( bool toDevice{ON}, toHuman{ON}; ON; ) {
 /**/if( toDevice ) { toDevice = 0;
       pnl.Ref(constrain(pnl.Ref(), 9*MHz, MAX_PFD));
       pnl.Pwr(constrain(pnl.Pwr(), minus4, plus5));
@@ -442,29 +438,28 @@ auto setup() -> void {
         case Axis::PHAS:  oled.println("Prop");       pnl.Lag.disp(oled,'\n',!pnl.hld); break;
         case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,'\n',!pnl.hld); break; }
       if(pnl.dtl) {
+        oled.setFont(Adafruit5x7); oled.setLetterSpacing(1);
+        oled.print("rpwr ");  oled.print(pll().rpwr);
+        oled.print(" rdiv "); oled.println(pll().rdiv);
+        oled.print("dnom ");  oled.print(pll().dnom);
+        oled.print(" prop "); oled.println(pll().prop);
+        oled.print("whol ");  oled.print(pll().whol);
+        oled.print(" numr "); oled.println(pll().numr);
+        oled.print(" pfd ");  oled.println(resolver.pfd(),3);
+        oled.print("  kT ");  oled.println(kT); }
+            #ifdef DEBUG
+        pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
+        pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
+        pr("pfd:"); S.print(resolver.pfd(),3);  pr(' ');
+        pr("kTn:"); S.print(kTn); pr(' ');
+        pr("kT:"); S.print(kT);  pr(' ');
         switch(pnl.axs) {
           default:
           case Axis::FREQ:  pnl.Frq.pr(); break;
           case Axis::AMPL:  pnl.Pwr.pr(); break;
           case Axis::PHAS:  pnl.Lag.pr(); break;
-          case Axis::REF:   pnl.Ref.pr(); break; }
-            #ifdef DEBUG
-        Serial.print(kT,1);  pr(' ');
-        pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
-        pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr,'\n');
-          //pr("pfd:"); Serial.print(resolver.pfd(),4); pr(' ');
+          case Axis::REF:   pnl.Ref.pr(); break; } pr('\n');
             #endif
-        } /*
-            oled.print("rpwr: ");   oled.print(pll().rpwr);
-            oled.print(" rdiv: ");  oled.println(pll().rdiv);
-            oled.print("dnom: ");   oled.print(pll().dnom);
-            oled.print(" prop: ");  oled.println(pll().prop);
-            oled.print("whol: ");   oled.print(pll().whol);
-            oled.print(" numr: ");  oled.println(pll().numr);
-            oled.print(" pfd: ");   oled.println(resolver.pfd(),4);
-            oled.print(tL,2); oled.print(' ');
-            oled.print(kT,2); oled.print(' ');
-            oled.print(tH,2); */
       toHuman = timOut = 0; }
 /**/if( timOut ) { timOut = 0; oled.clear(); snooz(); /* Awake. */ }
 /**/if( hasSS ) { if( !digitalRead(USR) ) { // Service the human.
@@ -508,7 +503,6 @@ auto setup() -> void {
         else { if(auto diff{ ss.getEncoderPosition() - knob })  { toHuman = 1; // encdr intr
           if(0 < diff) ++pnl.axs; else --pnl.axs;
           knob = ss.getEncoderPosition(); } } } }
-/**/if(dog) { dog = 0; const auto alpha{0.91};
-      auto ref{ map(kT,453,460,24999840,24999790) };
-      if(pnl.Ref() != ref) { pnl.Ref( ref ); toHuman = toDevice = 1; }
-      kT = kT - (alpha * (kT - analogRead(A1)));  }    } }
+    // const auto alpha{ 0.9 }; kT = kT-(alpha*(kT-analogRead(A1)))
+/**/if(dog) { dog = 0; auto ref{ map(kT = analogRead(A1), 453, 460, 24999840, 24999790) };
+      if(pnl.Ref() != ref) { ++kTn; pnl.Ref( ref ); toDevice = toHuman = 1; } }  } }
