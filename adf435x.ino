@@ -63,7 +63,7 @@ namespace Hardware {
   auto wdtInit() -> void {
     MCUSR = 0;
     WDTCSR = bit(WDCE) | bit(WDE);
-    WDTCSR = (bit(WDIE)) | (bit(WDP3)) | (bit(WDP0));
+    WDTCSR = (bit(WDIE)) | (bit(WDP3));// | (bit(WDP0));
     wdt_reset();  }
 } namespace HW = Hardware; namespace Synthesis {
  constexpr  i64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz };
@@ -293,13 +293,13 @@ class Resolver {
     auto operator++() -> decltype(*this) { if(Digits-1 < ++pstn) pstn = 0; return *this; }
     auto operator--() -> decltype(*this) { if(0 == pstn--) pstn = Digits-1; return *this; } };
       template <size_t Digits, size_t Radix = 10>
-class Num {
+class Nmrl {
   private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
     Cursor<Digits> cursor;
   public:
-  Num(i64 bn = 0) { operator()(bn); }
-  virtual ~Num() {}
+  Nmrl(i64 bn = 0) { operator()(bn); }
+  virtual ~Nmrl() {}
   auto disp( OLED& oled, char term = '\n', const bool carat = true ) -> void {
     const auto pstn{ cursor() };          const auto font{ oled.font() };
     const auto ivmd{ oled.invertMode() }; const auto ptch{ oled.letterSpacing() };
@@ -355,7 +355,7 @@ auto setup() -> void {
     pinMode(A3, INPUT_PULLUP);                        // short to A2
       pinMode(A4, INPUT_PULLUP);  pinMode(A5, INPUT_PULLUP);
   Wire.begin();  Wire.setClock(400000L);  SPI.begin();
-  Timer1.initialize(5000000UL); Timer1.attachInterrupt(Trigger); Timer1.start();
+  Timer1.initialize(10000000UL); Timer1.attachInterrupt(Trigger); Timer1.start();
     #ifdef DEBUG
   S.begin(115200L);
     #endif
@@ -406,7 +406,7 @@ auto setup() -> void {
 ; AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
   long knob; if(hasSS) {  knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
   /**/                    ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1); }
-  struct Panel {  Num<8> Ref; Num<1> Pwr; Num<10> Frq; Num<3> Lag; Axis axs;
+  struct Panel {  Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag; Axis axs;
   /**/            bool xmt, dtl, hld; };
   struct { Panel pnl; u16 sum; } Mem; Panel& pnl{ Mem.pnl };
   XMEM xm; bool hasXM{ xm.begin() }; if( hasXM ) xm.readObject(0, Mem);
@@ -506,4 +506,4 @@ auto setup() -> void {
           knob = ss.getEncoderPosition(); } } } }
 /**/if( acquire ) { const auto kappa{ 1.0 }; kT = kT-(kappa*(kT-analogRead(A1))); acquire = 0;
       auto ref{ map(kT, 453, 477, 24999845, 24999680) };//453, 460, 24999845, 24999790
-      if(pnl.Ref() != ref) { ++kTn; pnl.Ref( ref ); toDevice = toHuman = 1; } }  } }
+      if(pnl.Ref() != ref) { ++kTn; pnl.Ref( ref ); toDevice = 1; } }  } }// = toHuman
