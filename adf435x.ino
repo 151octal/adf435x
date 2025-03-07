@@ -1,10 +1,10 @@
 ; /*
   https://github.com/151octal/adf435x/blob/main/LICENSE
   ©rwHelgeson[kd9fww] 2024, 2025.  ADF435x using ATMEGA328 hardware SPI.
-  https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source.
-  https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
-  https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
-  https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
+    https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source.
+    https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
+    https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
+    https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
   #include "Adafruit_EEPROM_I2C.h"
   #include <Adafruit_GFX.h>
   #include "Adafruit_seesaw.h"
@@ -24,7 +24,7 @@
   using DBL = double;
   using OLED = SSD1306AsciiWire;  // Because the Adafruit library is too big. (both)
   using XMEM = Adafruit_EEPROM_I2C;
-  enum Enable { OFF = 0, ON = 1 };
+  enum Enable : u8 { OFF = 0, ON = 1 };
       #ifdef DEBUG
   constexpr auto& S{Serial};  // Shorthand.
   auto pr( const char& cc ) -> const size_t { return S.print(cc); }
@@ -41,30 +41,30 @@ namespace Hardware {
     auto p{ static_cast<u8*>(vp) };
     u16 sum{0}; while(n--) { sum += *(p++); sum %= 255; } return sum; };
   auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
-  volatile bool dog{ 0 };
-  ISR(WDT_vect) { dog = 1; }
-  auto pooch() -> void {
-    MCUSR = 0;
-    WDTCSR = bit(WDCE) | bit(WDE);
-    WDTCSR = (bit(WDIE)) | (bit(WDP3)) | (bit(WDP0));
-    wdt_reset();  }
-  auto Nudge{ [](){ sleep_disable(); } };
+  volatile bool acquire{ 1 };
+  ISR(WDT_vect) { acquire = 1; }
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
+  auto sNudge{ [](){ sleep_disable(); } };
   auto snooz() -> void {  // lambda hostile macros. Another reason to promulgate them not.
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
     sleep_enable();
-    attachInterrupt(digitalPinToInterrupt(USR), Nudge, LOW);
+    attachInterrupt(digitalPinToInterrupt(USR), sNudge, LOW);
     EIFR = bit(INTF0);
     sleep_mode();
     detachInterrupt(digitalPinToInterrupt(USR));  }
-  volatile bool timOut{ 0 };
-  auto Trigger{ [](){ timOut = 1; } };  // Timer1 ISR target
+  volatile bool shutEye{ 0 };
+  auto Trigger{ [](){ shutEye = 1; } };  // Timer1 ISR target
   auto tx = [](const PIN& le, void *pByte, int nByte){
     auto p{ static_cast<u8*>(pByte) + nByte };      // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      // Data is latched on the rising edge.
+  auto wdtInit() -> void {
+    MCUSR = 0;
+    WDTCSR = bit(WDCE) | bit(WDE);
+    WDTCSR = (bit(WDIE)) | (bit(WDP3)) | (bit(WDP0));
+    wdt_reset();  }
 } namespace HW = Hardware; namespace Synthesis {
  constexpr  i64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz };
   constexpr i64   MAX_VCO{ 4400000000 };            // 4400 MHz.
@@ -85,80 +85,80 @@ namespace Hardware {
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
   static_assert((MAX_PFD >= PFD) && (MIN_PFD <= PFD));
- enum   ABPnS { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum class Axis : size_t { FREQ = 1, AMPL, PHAS, REF };
-  Axis& operator++(Axis& axs) { switch(axs) {
-    case Axis::FREQ: axs = Axis::PHAS;  break;
-    case Axis::PHAS: axs = Axis::AMPL;  break;
-    case Axis::AMPL: axs = Axis::REF;   break;
-    case Axis::REF:  axs = Axis::FREQ;  break; } return axs; }
-  Axis& operator--(Axis& axs) { switch(axs) {
-    case Axis::REF:  axs = Axis::AMPL;  break;
-    case Axis::AMPL: axs = Axis::PHAS;  break;
-    case Axis::PHAS: axs = Axis::FREQ;  break;
-    case Axis::FREQ: axs = Axis::REF;   break; } return axs; }
-  enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
+ enum   ABPnS : u8 { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
+  enum class Axis : u8 { FREQ = 1, AMPL, PHAS, REF };
+    Axis& operator++(Axis& axs) { switch(axs) {
+      case Axis::FREQ: axs = Axis::PHAS;  break;
+      case Axis::PHAS: axs = Axis::AMPL;  break;
+      case Axis::AMPL: axs = Axis::REF;   break;
+      case Axis::REF:  axs = Axis::FREQ;  break; } return axs; }
+    Axis& operator--(Axis& axs) { switch(axs) {
+      case Axis::REF:  axs = Axis::AMPL;  break;
+      case Axis::AMPL: axs = Axis::PHAS;  break;
+      case Axis::PHAS: axs = Axis::FREQ;  break;
+      case Axis::FREQ: axs = Axis::REF;   break; } return axs; }
+ enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
   constexpr auto btnMask{ sft + inc + lft + dec + rgt };
   const auto btns{ [](AFSS& ss,const u32& msk = btnMask){ return msk^ss.digitalReadBulk(msk); } };
-  enum  BSCmd { programmed = 0, automatic };        // Band Select Clock mode
-  enum  ClockingMode { dividerOff = 0, fastLock, phResync };
+  enum  BSCmd : u8 { programmed = 0, automatic };        // Band Select Clock mode
+  enum  ClockingMode : u8 { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
-  constexpr enum  FDBK { divided = 0, fundamental } Feedback = divided;
-  enum  LDPnS { ten = 0, six };                     // Lock Detect Precision
-  enum  LEDmode { low = 0, lockDetect = 1, high = 3 };
+  constexpr enum FDBK : u8 { divided = 0, fundamental } Feedback = divided;
+  enum  LDPnS : u8 { ten = 0, six };                     // Lock Detect Precision
+  enum  LEDmode : u8 { low = 0, lockDetect = 1, high = 3 };
   auto  log2(const DBL& arg) -> DBL { return log10(arg) / log10(2); };
-  enum  LockDetectFunction{ fracN = 0, intN };
-  enum  MuxOut { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
-  enum  NoiseSpurMode { lowNoise = 0, lowSpur = 3 };
+  enum  LockDetectFunction : u8 { fracN = 0, intN };
+  enum  MuxOut : u8 { HiZ = 0, DVdd, DGnd, RcountOut, NdivOut, analogLock, digitalLock };
+  enum  NoiseSpurMode : u8 { lowNoise = 0, lowSpur = 3 };
   constexpr auto  OVERLAYED_REGISTERS{ 6 };
   const auto pfdf = [](DBL r){ return r * (1+DBLR) / (1+TGLR) / R_COUNT; };
-  enum  PRSCL { four5ths = 0, eight9ths };
-  enum  PDpolarity { negative = 0, positive };
+  enum  PRSCL : u8 { four5ths = 0, eight9ths };
+  enum  PDpolarity : u8 { negative = 0, positive };
   const auto power{ [](const u8 r, u8 e){ i64 rv{1}; while(e--) rv *= r; return rv; } };
-enum Identifier : u8 {
-    // Human readable register 'field' identifiers.
-    // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
-    fraction,     integer,      modulus,
-    phase,        prescaler,    phAdj,
-    counterReset, cp3state,     idle,
-    pdPolarity,   ldp,          ldf,
-    cpIndex,      dblBfr,       rCounter,
-    refToggler,   refDoubler,   muxOut,
-    LnLsModes,    clkDivider,   clkDivMode,
-    csr,          chrgCancel,   abp,
-    bscMode,      rfOutPwr,     rfSoftEnable,
-    auxOutPwr,    auxOutEnable, auxFBselect,
-    muteTillLD,   vcoPwrDown,   bndSelClkDv,
-    rfDivSelect,  rfFBselect,   ledMode,
-    _end
-  };  using I = Identifier;
-constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] {  /*
-  //  https://gcc.gnu.org/onlinedocs/gcc/Designated-Inits.html
-  Human deduced via inspection.
-    OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
-    RANK:                 RANK = OVERLAYED_REGISTERS - 1 - Datasheet Register Number.
-                          tx() in ascending RANK order, unless not dirty. Thus, datasheet
-                          register '0' is always tx()'d last (and will always need to be tx()'d).
-                          See flush() below.
-    OFFSET:               Zero based position of the field's least significant bit.
-    WIDTH:                Correct. The number of bits in a field (and is at least one).
-                          •You get a gold star• */
-  [I::fraction] = {5, 3, 12},     [I::integer] = {5, 15, 16},     [I::modulus] = {4, 3, 12},
-  [I::phase] = {4, 15, 12},       [I::prescaler] = {4, 27, 1},    [I::phAdj] = {4, 28, 1},
-  [I::counterReset] = {3, 3, 1},  [I::cp3state] = {3, 4, 1},      [I::idle] = {3, 5, 1},
-  [I::pdPolarity] = {3, 6, 1},    [I::ldp] = {3, 7, 1},           [I::ldf] = {3, 8, 1},
-  [I::cpIndex] = {3, 9, 4},       [I::dblBfr] = {3, 13, 1},       [I::rCounter] = {3, 14, 10},
-  [I::refToggler] = {3, 24, 1},   [I::refDoubler] = {3, 25, 1},   [I::muxOut] = {3, 26, 3},
-  [I::LnLsModes] = {3, 29, 2},    [I::clkDivider] = {2, 3, 12},   [I::clkDivMode] = {2, 15, 2},
-  [I::csr] = {2, 18, 1},          [I::chrgCancel] = {2, 21, 1},   [I::abp] = {2, 22, 1},
-  [I::bscMode] = {2, 23, 1},      [I::rfOutPwr] = {1, 3, 2},      [I::rfSoftEnable] = {1, 5, 1},
-  [I::auxOutPwr] = {1, 6, 2},     [I::auxOutEnable] = {1, 8, 1},  [I::auxFBselect] = {1, 9, 1},
-  [I::muteTillLD] = {1, 10, 1},   [I::vcoPwrDown] = {1, 11, 1},   [I::bndSelClkDv] = {1, 12, 8},
-  [I::rfDivSelect] = {1, 20, 3},  [I::rfFBselect] = {1, 23, 1},   [I::ledMode] = {0, 22, 2} };
-  static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(ADF435x[0])));
-struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
-  constexpr State INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
-  /* kd9fww */
+ enum Identifier : u8 {
+      // Human readable register 'field' identifiers.
+      // In datasheet order. Enumerant names do NOT mirror datasheet's names exactly.
+      fraction,     integer,      modulus,
+      phase,        prescaler,    phAdj,
+      counterReset, cp3state,     idle,
+      pdPolarity,   ldp,          ldf,
+      cpIndex,      dblBfr,       rCounter,
+      refToggler,   refDoubler,   muxOut,
+      LnLsModes,    clkDivider,   clkDivMode,
+      csr,          chrgCancel,   abp,
+      bscMode,      rfOutPwr,     rfSoftEnable,
+      auxOutPwr,    auxOutEnable, auxFBselect,
+      muteTillLD,   vcoPwrDown,   bndSelClkDv,
+      rfDivSelect,  rfFBselect,   ledMode,
+      _end
+    };  using I = Identifier;
+ constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] {  /*
+    //  https://gcc.gnu.org/onlinedocs/gcc/Designated-Inits.html
+    Human deduced via inspection.
+      OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
+      RANK:                 RANK = OVERLAYED_REGISTERS - 1 - Datasheet Register Number.
+                            tx() in ascending RANK order, unless not dirty. Thus, datasheet
+                            register '0' is always tx()'d last (and will always need to be tx()'d).
+                            See flush() below.
+      OFFSET:               Zero based position of the field's least significant bit.
+      WIDTH:                Correct. The number of bits in a field (and is at least one).
+                            •You get a gold star• */
+    [I::fraction] = {5, 3, 12},     [I::integer] = {5, 15, 16},     [I::modulus] = {4, 3, 12},
+    [I::phase] = {4, 15, 12},       [I::prescaler] = {4, 27, 1},    [I::phAdj] = {4, 28, 1},
+    [I::counterReset] = {3, 3, 1},  [I::cp3state] = {3, 4, 1},      [I::idle] = {3, 5, 1},
+    [I::pdPolarity] = {3, 6, 1},    [I::ldp] = {3, 7, 1},           [I::ldf] = {3, 8, 1},
+    [I::cpIndex] = {3, 9, 4},       [I::dblBfr] = {3, 13, 1},       [I::rCounter] = {3, 14, 10},
+    [I::refToggler] = {3, 24, 1},   [I::refDoubler] = {3, 25, 1},   [I::muxOut] = {3, 26, 3},
+    [I::LnLsModes] = {3, 29, 2},    [I::clkDivider] = {2, 3, 12},   [I::clkDivMode] = {2, 15, 2},
+    [I::csr] = {2, 18, 1},          [I::chrgCancel] = {2, 21, 1},   [I::abp] = {2, 22, 1},
+    [I::bscMode] = {2, 23, 1},      [I::rfOutPwr] = {1, 3, 2},      [I::rfSoftEnable] = {1, 5, 1},
+    [I::auxOutPwr] = {1, 6, 2},     [I::auxOutEnable] = {1, 8, 1},  [I::auxFBselect] = {1, 9, 1},
+    [I::muteTillLD] = {1, 10, 1},   [I::vcoPwrDown] = {1, 11, 1},   [I::bndSelClkDv] = {1, 12, 8},
+    [I::rfDivSelect] = {1, 20, 3},  [I::rfFBselect] = {1, 23, 1},   [I::ledMode] = {0, 22, 2} };
+    static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(LayoutSpecification)));
+  struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
+    constexpr State INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
+    /* kd9fww */
 class SpecifiedOverlay {
   private:
     HW::PIN le{ HW::PIN::LE }, ld{ HW::PIN::LD };  // could be dynamic (multi-device)
@@ -281,18 +281,18 @@ class Resolver {
   auto pfd() -> const DBL { return _pfd; }  // Phase Frequency Detector frequency
   auto pfd(const DBL& f) -> void { _pfd = f; } };
     /* kd9fww */
-  template <size_t Digits>
-class Cursor {
-  private:
-    size_t pstn;
-  public:
-  Cursor(const size_t& ix = 0) : pstn{ constrain(ix, 0, Digits-1) } {}
-  virtual ~Cursor() {}
-  auto operator()() -> decltype(pstn) { return pstn; }
-  auto operator()(u8 ix) -> decltype(pstn) { return pstn = constrain(ix, 0, Digits-1); }
-  auto operator++() -> decltype(*this) { if(Digits-1 < ++pstn) pstn = 0; return *this; }
-  auto operator--() -> decltype(*this) { if(0 == pstn--) pstn = Digits-1; return *this; } };
-    template <size_t Digits, size_t Radix = 10>
+    template <size_t Digits>
+  class Cursor {
+    private:
+      size_t pstn;
+    public:
+    Cursor(const size_t& ix = 0) : pstn{ constrain(ix, 0, Digits-1) } {}
+    virtual ~Cursor() {}
+    auto operator()() -> decltype(pstn) { return pstn; }
+    auto operator()(u8 ix) -> decltype(pstn) { return pstn = constrain(ix, 0, Digits-1); }
+    auto operator++() -> decltype(*this) { if(Digits-1 < ++pstn) pstn = 0; return *this; }
+    auto operator--() -> decltype(*this) { if(0 == pstn--) pstn = Digits-1; return *this; } };
+      template <size_t Digits, size_t Radix = 10>
 class Num {
   private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
     std::deque<u8,Digits> numrl;
@@ -360,7 +360,7 @@ auto setup() -> void {
   S.begin(115200L);
     #endif
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0x20);
-  analogReference(DEFAULT); auto kT{ analogRead(A1) };  // prime the adc pump
+  analogReference(DEFAULT); auto kT{ DBL(analogRead(A1)) };  // prime the adc pump
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
@@ -406,25 +406,26 @@ auto setup() -> void {
 ; AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
   long knob; if(hasSS) {  knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
   /**/                    ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1); }
-  struct Panel { Num<8> Ref; Num<1> Pwr; Num<10> Frq; Num<3> Lag; Axis axs; bool xmt, dtl, hld; };
+  struct Panel {  Num<8> Ref; Num<1> Pwr; Num<10> Frq; Num<3> Lag; Axis axs;
+  /**/            bool xmt, dtl, hld; };
   struct { Panel pnl; u16 sum; } Mem; Panel& pnl{ Mem.pnl };
   XMEM xm; bool hasXM{ xm.begin() }; if( hasXM ) xm.readObject(0, Mem);
   if( ckMem(&pnl, sizeof(pnl)) != Mem.sum ) { // default values
     pnl.Ref(OSC); pnl.Pwr(minus4); pnl.Frq(34*MHz + 375*kHz); pnl.Lag(1);
     pnl.axs = Axis::REF; pnl.xmt = ON, pnl.dtl = ON; pnl.hld = OFF; };
-  Resolver resolver(pfdf(pnl.Ref()), IOTA); rf(pnl.xmt); pooch(); auto kTn{ 0U };
+; Resolver resolver(pfdf(pnl.Ref()), IOTA); rf(pnl.xmt); wdtInit(); auto kTn{ 0U };
 ; for( bool toDevice{ON}, toHuman{ON}; ON; ) {
-/**/if( toDevice ) { toDevice = 0;
+/**/if( toDevice ) {
       pnl.Ref(constrain(pnl.Ref(), 9*MHz, MAX_PFD));
       pnl.Pwr(constrain(pnl.Pwr(), minus4, plus5));
       pll(resolver(pnl.Pwr(), Axis::AMPL));
-      resolver.pfd(pfdf(pnl.Ref()));
       pnl.Frq(constrain(pnl.Frq(), MIN_FREQ, MAX_FREQ));
+      resolver.pfd(pfdf(pnl.Ref()));  // resolver needs (updated) pfd value: dependent on Ref.
       pll(resolver(pnl.Frq(), Axis::FREQ));
       pnl.Lag(constrain(pnl.Lag(), 1, pll().dnom-1));
       pll(resolver(pnl.Lag(), Axis::PHAS));
-      pll.flush(); }
-/**/if( toHuman && !timOut ) {
+      pll.flush(); toDevice = 0; }
+/**/if( toHuman && !shutEye ) {
       oled.clear(); Timer1.restart();
       if(pnl.dtl) { oled.setFont(Adafruit5x7); oled.setLetterSpacing(1); }
       /**/  else  { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
@@ -437,6 +438,7 @@ auto setup() -> void {
         case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled,'\n',!pnl.hld); break;
         case Axis::PHAS:  oled.println("Prop");       pnl.Lag.disp(oled,'\n',!pnl.hld); break;
         case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,'\n',!pnl.hld); break; }
+              #ifdef DEBUG
       if(pnl.dtl) {
         oled.setFont(Adafruit5x7); oled.setLetterSpacing(1);
         oled.print("rpwr ");  oled.print(pll().rpwr);
@@ -446,22 +448,22 @@ auto setup() -> void {
         oled.print("whol ");  oled.print(pll().whol);
         oled.print(" numr "); oled.println(pll().numr);
         oled.print(" pfd ");  oled.println(resolver.pfd(),3);
-        oled.print("  kT ");  oled.println(kT); }
-            #ifdef DEBUG
-        pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
-        pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
-        pr("pfd:"); S.print(resolver.pfd(),3);  pr(' ');
-        pr("kTn:"); S.print(kTn); pr(' ');
-        pr("kT:"); S.print(kT);  pr(' ');
-        switch(pnl.axs) {
-          default:
-          case Axis::FREQ:  pnl.Frq.pr(); break;
-          case Axis::AMPL:  pnl.Pwr.pr(); break;
-          case Axis::PHAS:  pnl.Lag.pr(); break;
-          case Axis::REF:   pnl.Ref.pr(); break; } pr('\n');
-            #endif
-      toHuman = timOut = 0; }
-/**/if( timOut ) { timOut = 0; oled.clear(); snooz(); /* Awake. */ }
+        oled.print("  kT ");  oled.println(kT,2); }
+        if(1) {//0 != kTn
+          pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
+          pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
+          pr("pfd:"); S.print(resolver.pfd(),3);  pr(' ');
+          pr("kTn:"); S.print(kTn); pr(' ');
+          pr("kT:"); S.print(kT,2);  pr(' ');
+          switch(pnl.axs) {
+            default:
+            case Axis::FREQ:  pnl.Frq.pr(); break;
+            case Axis::AMPL:  pnl.Pwr.pr(); break;
+            case Axis::PHAS:  pnl.Lag.pr(); break;
+            case Axis::REF:   pnl.Ref.pr(); break; } pr('\n'); }
+              #endif
+      toHuman = shutEye = 0; }
+/**/if( shutEye ) { oled.clear(); snooz(/*asleep*/); /* Awake. */ shutEye = 0; }
 /**/if( hasSS ) { if( !digitalRead(USR) ) { // Service the human.
         if(auto act{ btns(ss) })                                { toHuman = 1; // btn intr
           if(sft != act) switch(act) {
@@ -493,9 +495,8 @@ auto setup() -> void {
                           case Axis::FREQ:  pnl.Frq(rgt); break;
                           case Axis::AMPL:  pnl.Pwr(rgt); break;
                           case Axis::PHAS:  pnl.Lag(rgt); break;
-                          case Axis::REF:   pnl.Ref(rgt); break; } }  break;
-              case sft+inc: if(hasXM) {
-                              Mem.sum = ckMem(&pnl, sizeof(pnl));
+                          case Axis::REF:   pnl.Ref(rgt); break; } }  break;//  pnl.Ref(OSC);
+              case sft+inc: if(hasXM) { pnl.Ref(OSC); Mem.sum = ckMem(&pnl, sizeof(pnl));
                                         xm.writeObject(0,Mem); }      break;
               case sft+lft: pnl.dtl = !pnl.dtl;                       break;
               case sft+dec: rf( pnl.xmt = !rf() );                    break;
@@ -503,6 +504,6 @@ auto setup() -> void {
         else { if(auto diff{ ss.getEncoderPosition() - knob })  { toHuman = 1; // encdr intr
           if(0 < diff) ++pnl.axs; else --pnl.axs;
           knob = ss.getEncoderPosition(); } } } }
-    // const auto alpha{ 0.9 }; kT = kT-(alpha*(kT-analogRead(A1)))
-/**/if(dog) { dog = 0; auto ref{ map(kT = analogRead(A1), 453, 460, 24999840, 24999790) };
+/**/if( acquire ) { const auto kappa{ 1.0 }; kT = kT-(kappa*(kT-analogRead(A1))); acquire = 0;
+      auto ref{ map(kT, 453, 477, 24999845, 24999680) };//453, 460, 24999845, 24999790
       if(pnl.Ref() != ref) { ++kTn; pnl.Ref( ref ); toDevice = toHuman = 1; } }  } }

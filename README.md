@@ -33,7 +33,10 @@ state values. These are made availabe both on the display
 and out the serial port (115200 baud) when Details are
 selected. Communication over SPI occurs at full speed.
 If user inactivity exceeds 10 seconds, the oled is
-extinguished and the cpu enters low power sleep mode.
+extinguished and the cpu enters low power sleep mode. Closed
+loop control over the reference frequency is made by
+measuring the oscillator's temperature with a thermistor
+connected to the metro_mini ADC.
 ------------------------------------------------------------
 Wire-wrap, limit to 5cm, and common mode choke the aggregate
 of (qty:8) wires connecting the ADF435x module. Configure
