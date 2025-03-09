@@ -1,4 +1,4 @@
-; /*
+/*
   https://github.com/151octal/adf435x/blob/main/LICENSE
   ©rwHelgeson[kd9fww] 2024, 2025.  ADF435x using ATMEGA328 hardware SPI.
     https://github.com/151octal/adf435x/blob/main/adf435x.ino <- Source.
@@ -41,29 +41,29 @@ namespace Hardware {
     auto p{ static_cast<u8*>(vp) };
     u16 sum{0}; while(n--) { sum += *(p++); sum %= 255; } return sum; };
   auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
-  volatile bool acquire{ 1 };
-  ISR(WDT_vect) { acquire = 1; }
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
-  auto sNudge{ [](){ sleep_disable(); } };
-  auto snooz() -> void {  // lambda hostile macros. Another reason to promulgate them not.
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    sleep_enable();
-    attachInterrupt(digitalPinToInterrupt(USR), sNudge, LOW);
-    EIFR = bit(INTF0);
-    sleep_mode();
-    detachInterrupt(digitalPinToInterrupt(USR));  }
-  volatile bool shutEye{ 0 };
-  auto Trigger{ [](){ shutEye = 1; } };  // Timer1 ISR target
   auto tx = [](const PIN& le, void *pByte, int nByte){
     auto p{ static_cast<u8*>(pByte) + nByte };      // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      // Data is latched on the rising edge.
-  auto wdtInit() -> void {
-    MCUSR = 0;
+  volatile bool vShutEye{ 0 };
+  auto sNudge{ [](){ sleep_disable(); } };
+  auto snooz() -> void {  // lambda hostile macros contained herein.
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);  // stolen from https://www.gammon.com.au/power
+    sleep_enable();
+    attachInterrupt(digitalPinToInterrupt(USR), sNudge, LOW);
+    EIFR = bit(INTF0);
+    sleep_mode();
+    detachInterrupt(digitalPinToInterrupt(USR));  }
+  auto Trigger{ [](){ vShutEye = 1; } };  // Timer1 ISR target
+  volatile bool vAcquire{ 1 };
+  ISR(WDT_vect) { vAcquire = 1; }
+  auto wdtInit() -> void {  // more macros. ugh.
+    MCUSR = 0;  // stolen from https://www.gammon.com.au/power
     WDTCSR = bit(WDCE) | bit(WDE);
-    WDTCSR = (bit(WDIE)) | (bit(WDP3));// | (bit(WDP0));
+    WDTCSR = (bit(WDIE)) | (bit(WDP3));// | (bit(WDP0));(bit(WDP2)) | (bit(WDP1));//
     wdt_reset();  }
 } namespace HW = Hardware; namespace Synthesis {
  constexpr  i64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz };
@@ -85,8 +85,7 @@ namespace Hardware {
   static_assert(R_COUNT * IOTA == OSC / MOD);       // No remainder.
   static_assert((0<R_COUNT) && (1024>R_COUNT));     // Non-zero, 10 bits.
   static_assert((MAX_PFD >= PFD) && (MIN_PFD <= PFD));
- enum   ABPnS : u8 { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
-  enum class Axis : u8 { FREQ = 1, AMPL, PHAS, REF };
+ enum class Axis : u8 { FREQ = 1, AMPL, PHAS, REF };
     Axis& operator++(Axis& axs) { switch(axs) {
       case Axis::FREQ: axs = Axis::PHAS;  break;
       case Axis::PHAS: axs = Axis::AMPL;  break;
@@ -97,7 +96,8 @@ namespace Hardware {
       case Axis::AMPL: axs = Axis::PHAS;  break;
       case Axis::PHAS: axs = Axis::FREQ;  break;
       case Axis::FREQ: axs = Axis::REF;   break; } return axs; }
- enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
+  enum   ABPnS : u8 { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
+  enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
   constexpr auto btnMask{ sft + inc + lft + dec + rgt };
   const auto btns{ [](AFSS& ss,const u32& msk = btnMask){ return msk^ss.digitalReadBulk(msk); } };
   enum  BSCmd : u8 { programmed = 0, automatic };        // Band Select Clock mode
@@ -156,15 +156,14 @@ namespace Hardware {
     [I::muteTillLD] = {1, 10, 1},   [I::vcoPwrDown] = {1, 11, 1},   [I::bndSelClkDv] = {1, 12, 8},
     [I::rfDivSelect] = {1, 20, 3},  [I::rfFBselect] = {1, 23, 1},   [I::ledMode] = {0, 22, 2} };
     static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(LayoutSpecification)));
-  struct State { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
-    constexpr State INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
-    /* kd9fww */
+  struct Parameters { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
+    constexpr Parameters INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
 class SpecifiedOverlay {
   private:
     HW::PIN le{ HW::PIN::LE }, ld{ HW::PIN::LD };  // could be dynamic (multi-device)
     NoiseSpurMode nsMode = lowNoise;  // sloppy afterthought
     static const LayoutSpecification* const layoutSpec;
-    State store{ INIT };
+    Parameters store{ INIT };
     struct Overlay {
       static constexpr size_t NR{ OVERLAYED_REGISTERS };
       using RegArray = std::array<u32, NR>; /*
@@ -224,7 +223,7 @@ class SpecifiedOverlay {
                             return raw( sym,store.rpwr = static_cast<dBm>(val) ); }
                       else  return raw( sym,val );                                } }
       // Parameter dispatcher
-  auto operator()( const State& loci ) -> decltype(*this) {
+  auto operator()( const Parameters& loci ) -> decltype(*this) {
     set( I::fraction,loci.numr ).set( I::integer,loci.whol ).set( I::modulus,loci.dnom );
     set( I::phase,loci.prop ).set( I::rfDivSelect,loci.rdiv ).set( I::rfOutPwr,loci.rpwr );
     return *this;  }
@@ -233,107 +232,105 @@ class SpecifiedOverlay {
     // Wrapper for operator()( sym,val )
   auto set( const I& sym,const u16& val ) -> decltype(*this) { return operator()( sym,val ); }
     // Wrapper for opertor()( loci )
-  auto set( const State& loci ) -> decltype(*this) { return operator()( loci ); }
+  auto set( const Parameters& loci ) -> decltype(*this) { return operator()( loci ); }
 } final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
-  /* kd9fww */
-class Resolver {
-  private:  // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
-    State loci{ INIT };
-    DBL _pfd; u16 spacing;
-    auto amplitude() -> const u8 { return loci.rpwr; }
-    auto amplitude(const dBm& a) -> const decltype(loci) { loci.rpwr = a; return loci; }
-      #ifdef MULTIPLE_PLL
-        auto phi() -> const DBL { return (loci.prop / DBL(loci.dnom - 1)); }
-        auto phi(DBL normalized) -> const decltype(loci) {
-            normalized = constrain((0 > normalized) ? -normalized : normalized, 0, 1);
-            auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
-            loci.prop = (1 > proportion) ? 1 : proportion;
-            return loci; }
-      #endif
-    auto omega() -> const i64 {
-      return i64(_pfd) * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv); }
-    auto omega(const i64& bn) -> const decltype(loci) {
-      auto freq{ constrain(bn, MIN_FREQ, MAX_FREQ) };
-      loci.rdiv = u16( floor( log2(MAX_VCO/freq) ) );
-      auto fractional_N{ (freq / _pfd) * pow(2, loci.rdiv) };
-      loci.whol = u16( trunc( fractional_N ) );
-      //loci.whol = (22 < loci.whol) ? loci.whol : 22;
-      loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
-      loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
-      return loci; }
-    auto pnum() -> const i64 { return loci.prop; }
-    auto pnum(const i64& bn) -> const decltype(loci) {  // Phase NUMerator: phase = prop / denom
-      loci.prop = constrain(bn, 1, loci.dnom-1 ); return loci; }
-  public:
-  Resolver( const DBL& pfd, const u16& step ) : _pfd{ pfd }, spacing{ step } {}
-  auto operator()(const i64& bn, Axis axs = Axis::FREQ) -> const decltype(loci) { switch(axs) {
-    default:
-    case Axis::FREQ:  return omega(bn);
-    case Axis::AMPL:  return amplitude(static_cast<dBm>(bn));
-    case Axis::PHAS:  return pnum(bn); } }//phi(DBL(bn)); } }
-      // Resolver value dispatcher. Returns Axis selective value from State
-  auto operator()(Axis axs = Axis::FREQ) -> const i64 {
-    switch (axs) {
-      default:
-      case Axis::FREQ:  return omega();
-      case Axis::AMPL:  return static_cast<i64>(amplitude());
-      case Axis::PHAS:  return pnum(); } }
-  auto pfd() -> const DBL { return _pfd; }  // Phase Frequency Detector frequency
-  auto pfd(const DBL& f) -> void { _pfd = f; } };
-    /* kd9fww */
-    template <size_t Digits>
-  class Cursor {
-    private:
-      size_t pstn;
+ class Resolver {
+    private:  // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
+      Parameters loci{ INIT };
+      DBL _pfd; u16 spacing;
+      auto amplitude() -> const u8 { return loci.rpwr; }
+      auto amplitude(const dBm& a) -> const decltype(loci) { loci.rpwr = a; return loci; }
+        #ifdef MULTIPLE_PLL
+          auto phi() -> const DBL { return (loci.prop / DBL(loci.dnom - 1)); }
+          auto phi(DBL normalized) -> const decltype(loci) {
+              normalized = constrain((0 > normalized) ? -normalized : normalized, 0, 1);
+              auto proportion{ u16(round(normalized * (loci.dnom - 1))) };
+              loci.prop = (1 > proportion) ? 1 : proportion;
+              return loci; }
+        #endif
+      auto omega() -> const i64 {
+        return i64(_pfd * (loci.whol + DBL(loci.numr) / loci.dnom) / pow(2,loci.rdiv)); }
+      auto omega(const i64& bn) -> const decltype(loci) {
+        auto freq{ constrain(bn, MIN_FREQ, MAX_FREQ) };
+        loci.rdiv = u16( floor( log2(MAX_VCO/freq) ) );
+        auto fractional_N{ (freq / _pfd) * pow(2, loci.rdiv) };
+        loci.whol = u16( trunc( fractional_N ) );
+        //loci.whol = (22 < loci.whol) ? loci.whol : 22;
+        loci.dnom = u16( ceil( OSC / R_COUNT / spacing ) );
+        loci.numr = u16( round( (fractional_N - loci.whol) * loci.dnom) );
+        return loci; }
+      auto pnum() -> const i64 { return loci.prop; }
+      auto pnum(const i64& bn) -> const decltype(loci) {  // Phase NUMerator: phase = prop / denom
+        loci.prop = constrain(bn, 1, loci.dnom-1 ); return loci; }
     public:
-    Cursor(const size_t& ix = 0) : pstn{ constrain(ix, 0, Digits-1) } {}
-    virtual ~Cursor() {}
-    auto operator()() -> decltype(pstn) { return pstn; }
-    auto operator()(u8 ix) -> decltype(pstn) { return pstn = constrain(ix, 0, Digits-1); }
-    auto operator++() -> decltype(*this) { if(Digits-1 < ++pstn) pstn = 0; return *this; }
-    auto operator--() -> decltype(*this) { if(0 == pstn--) pstn = Digits-1; return *this; } };
-      template <size_t Digits, size_t Radix = 10>
-class Nmrl {
-  private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
-    std::deque<u8,Digits> numrl;
-    Cursor<Digits> cursor;
-  public:
-  Nmrl(i64 bn = 0) { operator()(bn); }
-  virtual ~Nmrl() {}
-  auto disp( OLED& oled, char term = '\n', const bool carat = true ) -> void {
-    const auto pstn{ cursor() };          const auto font{ oled.font() };
-    const auto ivmd{ oled.invertMode() }; const auto ptch{ oled.letterSpacing() };
-    oled.setFont(X11fixed7x14); oled.setLetterSpacing(4);
-    for(size_t x{}; size() != x; x++) {
-      if(carat) { if(size()-1-pstn == x)  oled.setInvertMode(1);
-      /**/        /**/              else  oled.setInvertMode(0); }
-      oled.print(operator[](size()-1-x));  }
-    oled.setInvertMode(ivmd); oled.print(term);
-    oled.setFont(font);  oled.setLetterSpacing(ptch); }
-  auto operator[](const size_t& pstn) -> const u8 { return numrl[constrain(pstn, 0, Digits-1)]; }
-  auto operator()() -> const i64 {
-    i64 sum{0};
-    for(u8 idx{0}; idx!=numrl.size(); idx++) sum += operator[](idx) * power(Radix, idx);
-    return sum; }
-  auto operator()(const Action& act) -> void { switch(act) {
-    default:    break;
-    case inc:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
-                operator()( sum ); } break;
-    case dec:  { i64 sum{ operator()() }; sum -= power(Radix, cursor());
-                operator()( sum ); } break;
-    case lft: ++cursor; break;
-    case rgt: --cursor; break; } }
-  auto operator()(i64 bn) -> void {
-    numrl.clear();
-    for(u8 index{0}; index!=Digits; index++) {
-      numrl.push_front(bn / power(Radix, Digits-1-index));
-        bn %= power(Radix, Digits-1-index); } }
-          #ifdef DEBUG
-  auto pr(char term = ' ') -> void {
-    for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(term); }
-          #endif
-  auto size() -> const size_t { return numrl.size(); } };
-  /* End Synthesis:: */ }
+    Resolver( const DBL& pfd, const u16& step ) : _pfd{ pfd }, spacing{ step } {}
+    auto operator()(const i64& bn, Axis axs = Axis::FREQ) -> const decltype(loci) { switch(axs) {
+      default:
+      case Axis::FREQ:  return omega(bn);
+      case Axis::AMPL:  return amplitude(static_cast<dBm>(bn));
+      case Axis::PHAS:  return pnum(bn); } }//phi(DBL(bn)); } }
+        // Resolver value dispatcher. Returns Axis selective value from Parameters
+    auto operator()(Axis axs = Axis::FREQ) -> const i64 {
+      switch (axs) {
+        default:
+        case Axis::FREQ:  return omega();
+        case Axis::AMPL:  return static_cast<i64>(amplitude());
+        case Axis::PHAS:  return pnum(); } }
+    auto pfd() -> const DBL { return _pfd; }  // Phase Frequency Detector frequency
+    auto pfd(const DBL& f) -> void { _pfd = f; } };
+      template <size_t Digits>
+    class Cursor {
+      private:
+        size_t pstn;
+      public:
+      Cursor(const size_t& ix = 0) : pstn{ constrain(ix, 0, Digits-1) } {}
+      virtual ~Cursor() {}
+      auto operator()() -> decltype(pstn) { return pstn; }
+      auto operator()(u8 ix) -> decltype(pstn) { return pstn = constrain(ix, 0, Digits-1); }
+      auto operator++() -> decltype(*this) { if(Digits-1 < ++pstn) pstn = 0; return *this; }
+      auto operator--() -> decltype(*this) { if(0 == pstn--) pstn = Digits-1; return *this; } };
+        template <size_t Digits, size_t Radix = 10>
+ class Nmrl {
+    private:  //  https://en.m.wikipedia.org/w/index.php?title=Positional_notation
+      std::deque<u8,Digits> numrl;
+      Cursor<Digits> cursor;
+    public:
+    Nmrl(i64 bn = 0) { operator()(bn); }
+    virtual ~Nmrl() {}
+    auto disp( OLED& oled, char term = '\n', const bool carat = true ) -> void {
+      const auto pstn{ cursor() };          const auto font{ oled.font() };
+      const auto ivmd{ oled.invertMode() }; const auto ptch{ oled.letterSpacing() };
+      oled.setFont(X11fixed7x14); oled.setLetterSpacing(4);
+      for(size_t x{}; size() != x; x++) {
+        if(carat) { if(size()-1-pstn == x)  oled.setInvertMode(1);
+        /**/        /**/              else  oled.setInvertMode(0); }
+        oled.print(operator[](size()-1-x));  }
+      oled.setInvertMode(ivmd); oled.print(term);
+      oled.setFont(font);  oled.setLetterSpacing(ptch); }
+    auto operator[](const size_t& pstn) -> const u8 { return numrl[constrain(pstn, 0, Digits-1)]; }
+    auto operator()() -> const i64 {
+      i64 sum{0};
+      for(u8 idx{0}; idx!=numrl.size(); idx++) sum += operator[](idx) * power(Radix, idx);
+      return sum; }
+    auto operator()(const Action& act) -> void { switch(act) {
+      default:    break;
+      case inc:  { i64 sum{ operator()() }; sum += power(Radix, cursor());
+                  operator()( sum ); } break;
+      case dec:  { i64 sum{ operator()() }; sum -= power(Radix, cursor());
+                  operator()( sum ); } break;
+      case lft: ++cursor; break;
+      case rgt: --cursor; break; } }
+    auto operator()(i64 bn) -> void {
+      numrl.clear();
+      for(u8 index{0}; index!=Digits; index++) {
+        numrl.push_front(bn / power(Radix, Digits-1-index));
+          bn %= power(Radix, Digits-1-index); } }
+            #ifdef DEBUG
+    auto pr(char term = ' ') -> void {
+      for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(term); }
+            #endif
+    auto size() -> const size_t { return numrl.size(); } };
+/* End Synthesis:: */ }
   void setup() __attribute__ ((noreturn));
   //https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noreturn-function-attribute
   //  No loop(){} haHahaha!
@@ -349,18 +346,17 @@ auto setup() -> void {
     // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
     // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP); // ignored
-    pinMode(A0, INPUT_PULLUP);                        // available
-  pinMode(A1, INPUT_PULLUP);                        // thermistor bias
+  pinMode(A0, INPUT_PULLUP);                        // thermistor bias (x4) gives 20C ≈ half scale
+    pinMode(A1, INPUT_PULLUP);                        // short to A0
     pinMode(A2, INPUT_PULLUP);                        // short to A1
     pinMode(A3, INPUT_PULLUP);                        // short to A2
-      pinMode(A4, INPUT_PULLUP);  pinMode(A5, INPUT_PULLUP);
   Wire.begin();  Wire.setClock(400000L);  SPI.begin();
   Timer1.initialize(10000000UL); Timer1.attachInterrupt(Trigger); Timer1.start();
     #ifdef DEBUG
   S.begin(115200L);
     #endif
   OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0x20);
-  analogReference(DEFAULT); auto kT{ DBL(analogRead(A1)) };  // prime the adc pump
+  analogReference(DEFAULT); auto kT{ DBL(analogRead(A0)) };  // prime the adc pump
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
@@ -374,7 +370,7 @@ auto setup() -> void {
   pll( I::pdPolarity, PDpolarity::positive );                                             // (10)
   pll( I::ldp, LDPnS::ten );                                                              // (11)
   pll( I::ldf, LockDetectFunction::fracN );                                               // (12)
-  pll( I::cpIndex, 7 );  // 0 thru 15, 2.5mA = '7', cal increases loop bandwidth.           (13)
+  pll( I::cpIndex, 7 );   // 0 thru 15, 2.5mA = '7', cal increases loop bandwidth.           (13)
   pll( I::dblBfr, ON );                                                                   // (14)
   pll( I::rCounter, R_COUNT );                                                            // (15)
   pll( I::refToggler, TGLR );                                                             // (16)
@@ -407,39 +403,40 @@ auto setup() -> void {
   long knob; if(hasSS) {  knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
   /**/                    ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1); }
   struct Panel {  Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag; Axis axs;
-  /**/            bool xmt, dtl, hld; };
-  struct { Panel pnl; u16 sum; } Mem; Panel& pnl{ Mem.pnl };
+  /**/            bool xmt, dtl, hld, fix, flt; };
+  struct { Panel P; u16 sum; } Mem; Panel& P{ Mem.P };
   XMEM xm; bool hasXM{ xm.begin() }; if( hasXM ) xm.readObject(0, Mem);
-  if( ckMem(&pnl, sizeof(pnl)) != Mem.sum ) { // default values
-    pnl.Ref(OSC); pnl.Pwr(minus4); pnl.Frq(34*MHz + 375*kHz); pnl.Lag(1);
-    pnl.axs = Axis::REF; pnl.xmt = ON, pnl.dtl = ON; pnl.hld = OFF; };
-; Resolver resolver(pfdf(pnl.Ref()), IOTA); rf(pnl.xmt); wdtInit(); auto kTn{ 0U };
-; for( bool toDevice{ON}, toHuman{ON}; ON; ) {
+  if( ckMem(&P, sizeof(P)) != Mem.sum ) { // default values
+    P.Ref(OSC); P.Pwr(minus4); P.Frq(34*MHz + 375*kHz); P.Lag(1);
+    P.axs = Axis::REF; P.xmt = ON, P.dtl = ON; P.hld = OFF; P.fix = ON; P.flt = OFF; };
+  P.fix = 1; P.flt = 1;// = P.dtl;
+; Resolver rslv(pfdf(P.Ref()), IOTA); rf(P.xmt); wdtInit(); auto kTn{ 0U }; long mkT{ 0U };
+  for( bool toDevice{ON}, toHuman{ON}; ON; ) {
 /**/if( toDevice ) {
-      pnl.Ref(constrain(pnl.Ref(), 9*MHz, MAX_PFD));
-      pnl.Pwr(constrain(pnl.Pwr(), minus4, plus5));
-      pll(resolver(pnl.Pwr(), Axis::AMPL));
-      pnl.Frq(constrain(pnl.Frq(), MIN_FREQ, MAX_FREQ));
-      resolver.pfd(pfdf(pnl.Ref()));  // resolver needs (updated) pfd value: dependent on Ref.
-      pll(resolver(pnl.Frq(), Axis::FREQ));
-      pnl.Lag(constrain(pnl.Lag(), 1, pll().dnom-1));
-      pll(resolver(pnl.Lag(), Axis::PHAS));
+      P.Ref(constrain(P.Ref(), 9*MHz, MAX_PFD));
+      P.Pwr(constrain(P.Pwr(), minus4, plus5));
+      pll(rslv(P.Pwr(), Axis::AMPL));
+      P.Frq(constrain(P.Frq(), MIN_FREQ, MAX_FREQ));
+      rslv.pfd(pfdf(P.Ref()));  // Resolver:: needs (updated) pfd value: dependent on Ref.
+      pll(rslv(P.Frq(), Axis::FREQ));
+      P.Lag(constrain(P.Lag(), 1, pll().dnom-1));
+      pll(rslv(P.Lag(), Axis::PHAS));
       pll.flush(); toDevice = 0; }
-/**/if( toHuman && !shutEye ) {
+/**/if( toHuman && !vShutEye ) {
       oled.clear(); Timer1.restart();
-      if(pnl.dtl) { oled.setFont(Adafruit5x7); oled.setLetterSpacing(1); }
+      if(P.dtl) { oled.setFont(Adafruit5x7); oled.setLetterSpacing(1); }
       /**/  else  { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
       if(pll.locked()) oled.print('+'); else oled.print('-');
       if(rf()) oled.print('+'); else oled.print('-');
-        // I'm having an inherititance<N> mental block. N is getting in my way.
-      switch(pnl.axs) {
+      oled.print(P.fix ? '+' : '-');
+      switch(P.axs) {
         default:
-        case Axis::FREQ:  oled.println("Frequency");  pnl.Frq.disp(oled,'\n',!pnl.hld); break;
-        case Axis::AMPL:  oled.println("Pwr");        pnl.Pwr.disp(oled,'\n',!pnl.hld); break;
-        case Axis::PHAS:  oled.println("Prop");       pnl.Lag.disp(oled,'\n',!pnl.hld); break;
-        case Axis::REF:   oled.println("RefOsc");     pnl.Ref.disp(oled,'\n',!pnl.hld); break; }
+        case Axis::FREQ:  oled.println("Frequency");  P.Frq.disp(oled,'\n',!P.hld); break;
+        case Axis::AMPL:  oled.println("Pwr");        P.Pwr.disp(oled,'\n',!P.hld); break;
+        case Axis::PHAS:  oled.println("Prop");       P.Lag.disp(oled,'\n',!P.hld); break;
+        case Axis::REF:   oled.println("RefOsc");     P.Ref.disp(oled,'\n',!P.hld); break; }
               #ifdef DEBUG
-      if(pnl.dtl) {
+      if(P.dtl) {
         oled.setFont(Adafruit5x7); oled.setLetterSpacing(1);
         oled.print("rpwr ");  oled.print(pll().rpwr);
         oled.print(" rdiv "); oled.println(pll().rdiv);
@@ -447,63 +444,68 @@ auto setup() -> void {
         oled.print(" prop "); oled.println(pll().prop);
         oled.print("whol ");  oled.print(pll().whol);
         oled.print(" numr "); oled.println(pll().numr);
-        oled.print(" pfd ");  oled.println(resolver.pfd(),3);
-        oled.print("  kT ");  oled.println(kT,2); }
+        oled.print(" pfd ");  oled.println(rslv.pfd(),3);
+        oled.print("  kT ");  oled.println(kT,4); }
         if(1) {//0 != kTn
+          /*pr("f:"); S.print( DBL(rslv()),0 ); pr(' ');*/
           pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
           pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
-          pr("pfd:"); S.print(resolver.pfd(),3);  pr(' ');
+          pr("pfd:"); S.print(rslv.pfd(),3);  pr(' ');
           pr("kTn:"); S.print(kTn); pr(' ');
-          pr("kT:"); S.print(kT,2);  pr(' ');
-          switch(pnl.axs) {
+          pr("kT:"); S.print(kT,4); pr(' ');
+          pr("mkT:"); S.print(mkT); pr(' ');
+          switch(P.axs) {
             default:
-            case Axis::FREQ:  pnl.Frq.pr(); break;
-            case Axis::AMPL:  pnl.Pwr.pr(); break;
-            case Axis::PHAS:  pnl.Lag.pr(); break;
-            case Axis::REF:   pnl.Ref.pr(); break; } pr('\n'); }
+            case Axis::FREQ:  P.Frq.pr(0); break;
+            case Axis::AMPL:  P.Pwr.pr(0); break;
+            case Axis::PHAS:  P.Lag.pr(0); break;
+            case Axis::REF:   P.Ref.pr(0); break; }
+          S.print(P.fix ? '+' : '-'); pr('\n'); }
               #endif
-      toHuman = shutEye = 0; }
-/**/if( shutEye ) { oled.clear(); snooz(/*asleep*/); /* Awake. */ shutEye = 0; }
+      toHuman = vShutEye = 0; }
+/**/if( vShutEye ) { oled.clear(); snooz(/* Asleep */); /* Awake. */ vShutEye = 0; }
 /**/if( hasSS ) { if( !digitalRead(USR) ) { // Service the human.
         if(auto act{ btns(ss) })                                { toHuman = 1; // btn intr
-          if(sft != act) switch(act) {
-              default:                                                break;
-              case    inc:  if(!pnl.hld) {
+          if(sft != act) { switch(act) {
+              default:                                              break;
+              case    inc:  if(!P.hld) {
                         toDevice = 1;
-                        switch(pnl.axs) {
-                          case Axis::FREQ:  pnl.Frq(inc); break;
-                          case Axis::AMPL:  pnl.Pwr(inc); break;
-                          case Axis::PHAS:  pnl.Lag(inc); break;
-                          case Axis::REF:   pnl.Ref(inc); break; } }  break;
-              case    dec:  if(!pnl.hld) {
+                        switch(P.axs) {
+                          case Axis::FREQ:  P.Frq(inc); break;
+                          case Axis::AMPL:  P.Pwr(inc); break;
+                          case Axis::PHAS:  P.Lag(inc); break;
+                          case Axis::REF:   P.Ref(inc); break; } }  break;
+              case    dec:  if(!P.hld) {
                         toDevice = 1;
-                        switch(pnl.axs) {
-                          case Axis::FREQ:  pnl.Frq(dec); break;
-                          case Axis::AMPL:  pnl.Pwr(dec); break;
-                          case Axis::PHAS:  pnl.Lag(dec); break;
-                          case Axis::REF:   pnl.Ref(dec); break; } }  break;
-              case    lft:  if(!pnl.hld) {
+                        switch(P.axs) {
+                          case Axis::FREQ:  P.Frq(dec); break;
+                          case Axis::AMPL:  if(P.Pwr()) P.Pwr(dec); break;
+                          case Axis::PHAS:  P.Lag(dec); break;
+                          case Axis::REF:   P.Ref(dec); break; } }  break;
+              case    lft:  if(!P.hld) {
                         toDevice = 1;
-                        switch(pnl.axs) {
-                          case Axis::FREQ:  pnl.Frq(lft); break;
-                          case Axis::AMPL:  pnl.Pwr(lft); break;
-                          case Axis::PHAS:  pnl.Lag(lft); break;
-                          case Axis::REF:   pnl.Ref(lft); break; } }  break;
-              case    rgt:  if(!pnl.hld) {
+                        switch(P.axs) {
+                          case Axis::FREQ:  P.Frq(lft); break;
+                          case Axis::AMPL:  P.Pwr(lft); break;
+                          case Axis::PHAS:  P.Lag(lft); break;
+                          case Axis::REF:   P.Ref(lft); break; } }  break;
+              case    rgt:  if(!P.hld) {
                         toDevice = 1;
-                        switch(pnl.axs) {
-                          case Axis::FREQ:  pnl.Frq(rgt); break;
-                          case Axis::AMPL:  pnl.Pwr(rgt); break;
-                          case Axis::PHAS:  pnl.Lag(rgt); break;
-                          case Axis::REF:   pnl.Ref(rgt); break; } }  break;//  pnl.Ref(OSC);
-              case sft+inc: if(hasXM) { pnl.Ref(OSC); Mem.sum = ckMem(&pnl, sizeof(pnl));
-                                        xm.writeObject(0,Mem); }      break;
-              case sft+lft: pnl.dtl = !pnl.dtl;                       break;
-              case sft+dec: rf( pnl.xmt = !rf() );                    break;
-              case sft+rgt: pnl.hld = !pnl.hld;                       break; } }
-        else { if(auto diff{ ss.getEncoderPosition() - knob })  { toHuman = 1; // encdr intr
-          if(0 < diff) ++pnl.axs; else --pnl.axs;
-          knob = ss.getEncoderPosition(); } } } }
-/**/if( acquire ) { const auto kappa{ 1.0 }; kT = kT-(kappa*(kT-analogRead(A1))); acquire = 0;
-      auto ref{ map(kT, 453, 477, 24999845, 24999680) };//453, 460, 24999845, 24999790
-      if(pnl.Ref() != ref) { ++kTn; pnl.Ref( ref ); toDevice = 1; } }  } }// = toHuman
+                        switch(P.axs) {
+                          case Axis::FREQ:  P.Frq(rgt); break;
+                          case Axis::AMPL:  P.Pwr(rgt); break;
+                          case Axis::PHAS:  P.Lag(rgt); break;
+                          case Axis::REF:   P.Ref(rgt); break; } }  break;
+              case sft+inc: if(hasXM) { Mem.sum = ckMem(&P, sizeof(P));//if(!P.fix) P.Ref(OSC); 
+                                        xm.writeObject(0,Mem); }    break;
+              case sft+lft: P.dtl = !P.dtl;                         break;
+              case sft+dec: rf( P.xmt = !rf() );                    break;
+              case sft+rgt: P.hld = !P.hld;                         break; } } }
+        else { if(auto diff{ ss.getEncoderPosition() - knob }) { if(!P.hld) { // encdr intr
+              toHuman = 1; 
+              if(0 < diff) ++P.axs; else --P.axs;
+              knob = ss.getEncoderPosition(); } } } } }
+/**/if( vAcquire ) { const auto k{ P.flt ? 0.5 : 1.0 }; kT = kT-(k*(kT-analogRead(A0)));
+      vAcquire = 0; mkT = map(kT, 524, 550, 24999850, 24999675);/* toHuman = 1; */
+      if(P.fix && (P.Ref() != mkT)) { ++kTn; P.Ref( mkT ); toDevice = 1;
+  /**/if(P.dtl) toHuman = 1; } } } }
