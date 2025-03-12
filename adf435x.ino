@@ -5,21 +5,23 @@
     https://github.com/151octal/adf435x/blob/main/README.md <- Circuitry notes.
     https://www.analog.com/ADF4351 <- Datasheet of the device for which it is designed.
     https://ez.analog.com/rf/w/documents/14697/adf4350-and-adf4351-common-questions-cheat-sheet */
-  #include "Adafruit_EEPROM_I2C.h"
-  #include <Adafruit_GFX.h>
-  #include "Adafruit_seesaw.h"
-  #include <Arduino.h>
-  #include <ArxContainer.h>
-  #include <avr/sleep.h>
-  #include <avr/wdt.h>
-  #include "SSD1306Ascii.h"
-  #include "SSD1306AsciiWire.h"
-  #include <SPI.h>
-  #include <TimerOne.h>
-  #include <Wire.h>
+    #include "Adafruit_EEPROM_I2C.h"
+    #include <Adafruit_GFX.h>
+    #include "Adafruit_seesaw.h"
+    #include <Arduino.h>
+    #include <ArxContainer.h>
+    #include <avr/sleep.h>
+    #include <avr/wdt.h>
+    #include "BigNumber.h"
+    #include "SSD1306Ascii.h"
+    #include "SSD1306AsciiWire.h"
+    #include <SPI.h>
+    #include <TimerOne.h>
+    #include <Wire.h>
   #define DEBUG
   //  #undef DEBUG
   using i64 = long long;
+  using u64 = unsigned long long;
   using AFSS = Adafruit_seesaw;
   using DBL = double;
   using OLED = SSD1306AsciiWire;  // Because the Adafruit library is too big. (both)
@@ -30,8 +32,17 @@
   auto pr( const char& cc ) -> const size_t { return S.print(cc); }
   auto pr( const   u8& uc ) -> const size_t { return S.print(uc); }
   auto pr( const char* const s ) -> const size_t { return S.print(s); }
-  auto pr( const u16& arg, char term = 0, int num = DEC ) -> const size_t {
-    return S.print(arg, num) + pr(term); }
+    /*
+    auto pr( i64 arg, char t = 0, int b = DEC ) -> const size_t {
+      if(10 == b) return S.print('-') + pr( 0>arg ? -arg : arg, t, b);
+      return pr(arg, t, b);  }
+    auto pr( u64 arg, char t = 0, int b = DEC ) -> const size_t {
+      char bfr[sizeof(arg) + 1], *s{ &bfr[sizeof(bfr)-1] }; *s = 0;
+      b = (b < 2) ? 10 : b;
+      do { auto c{ char(arg % b) }; arg /= b; *--s = c < 10 ? c+'0' : c+'A'-10; } while( arg );
+      return S.write(s) + S.print(t);  } */
+    auto pr( const u16& arg, char term = 0, int num = DEC ) -> const size_t {
+      return S.print(arg, num) + pr(term); }
   auto pr( const char* const s, const u16& arg, char term = ' ', int num = DEC ) -> const size_t {
     return pr(s) + pr(arg, term, num); }
       #endif
@@ -48,20 +59,22 @@ namespace Hardware {
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
     digitalWrite( static_cast<u8>(le), 1 ); };      // Data is latched on the rising edge.
-  volatile bool vShutEye{ 0 };
-  auto sNudge{ [](){ sleep_disable(); } };
-  auto snooz() -> void {  // lambda hostile macros contained herein.
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN);  // stolen from https://www.gammon.com.au/power
+  volatile bool vShutter{ 0 };
+  auto sNudge{ [](){ sleep_disable(); detachInterrupt(digitalPinToInterrupt(USR)); } };
+  auto nap() -> void {  // lambda hostile macros contained herein.
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);  // From: Nick Gammon. https://www.gammon.com.au/power
     sleep_enable();
+    noInterrupts(); // Begin critical section. (Me.)
     attachInterrupt(digitalPinToInterrupt(USR), sNudge, LOW);
     EIFR = bit(INTF0);
+    interrupts();   // End critical section.
     sleep_mode();
     detachInterrupt(digitalPinToInterrupt(USR));  }
-  auto Trigger{ [](){ vShutEye = 1; } };  // Timer1 ISR target
+  auto Trigger{ [](){ vShutter = 1; } };  // Timer1 ISR target
   volatile bool vAcquire{ 1 };
   ISR(WDT_vect) { vAcquire = 1; }
   auto wdtInit() -> void {  // more macros. ugh.
-    MCUSR = 0;  // stolen from https://www.gammon.com.au/power
+    MCUSR = 0;  // From: Nick Gammon. https://www.gammon.com.au/power
     WDTCSR = bit(WDCE) | bit(WDE);
     WDTCSR = (bit(WDIE)) | (bit(WDP3));// | (bit(WDP0));(bit(WDP2)) | (bit(WDP1));//
     wdt_reset();  }
@@ -99,7 +112,8 @@ namespace Hardware {
   enum   ABPnS : u8 { nS6fracN = 0, nS3intN };            // AntiBacklash Pulse
   enum  Action : u8 { sft = 2, inc = sft<<1, lft = inc<<1, dec = lft<<1, rgt = dec<<1 };
   constexpr auto btnMask{ sft + inc + lft + dec + rgt };
-  const auto btns{ [](AFSS& ss,const u32& msk = btnMask){ return msk^ss.digitalReadBulk(msk); } };
+  const auto btns{ [](AFSS& ss,const u8& msk = btnMask){
+    return u8(msk^ss.digitalReadBulk(msk)); } };
   enum  BSCmd : u8 { programmed = 0, automatic };        // Band Select Clock mode
   enum  ClockingMode : u8 { dividerOff = 0, fastLock, phResync };
   enum  dBm : u8 { minus4 = 0, minus1, plus2, plus5 };
@@ -297,16 +311,16 @@ class SpecifiedOverlay {
     public:
     Nmrl(i64 bn = 0) { operator()(bn); }
     virtual ~Nmrl() {}
-    auto disp( OLED& oled, char term = '\n', const bool carat = true ) -> void {
-      const auto pstn{ cursor() };          const auto font{ oled.font() };
-      const auto ivmd{ oled.invertMode() }; const auto ptch{ oled.letterSpacing() };
-      oled.setFont(X11fixed7x14); oled.setLetterSpacing(4);
+    auto disp( OLED& O, char term = '\n', const bool carat = true ) -> void {
+      const auto pstn{ cursor() };          const auto font{ O.font() };
+      const auto ivmd{ O.invertMode() }; const auto ptch{ O.letterSpacing() };
+      O.setFont(X11fixed7x14); O.setLetterSpacing(4);
       for(size_t x{}; size() != x; x++) {
-        if(carat) { if(size()-1-pstn == x)  oled.setInvertMode(1);
-        /**/        /**/              else  oled.setInvertMode(0); }
-        oled.print(operator[](size()-1-x));  }
-      oled.setInvertMode(ivmd); oled.print(term);
-      oled.setFont(font);  oled.setLetterSpacing(ptch); }
+        if(carat) { if(size()-1-pstn == x)  O.setInvertMode(1);
+        /**/        /**/              else  O.setInvertMode(0); }
+        O.print(operator[](size()-1-x));  }
+      O.setInvertMode(ivmd); O.print(term);
+      O.setFont(font);  O.setLetterSpacing(ptch); }
     auto operator[](const size_t& pstn) -> const u8 { return numrl[constrain(pstn, 0, Digits-1)]; }
     auto operator()() -> const i64 {
       i64 sum{0};
@@ -351,12 +365,11 @@ auto setup() -> void {
     pinMode(A2, INPUT_PULLUP);                        // short to A1
     pinMode(A3, INPUT_PULLUP);                        // short to A2
   Wire.begin();  Wire.setClock(400000L);  SPI.begin();
-  Timer1.initialize(10000000UL); Timer1.attachInterrupt(Trigger); Timer1.start();
     #ifdef DEBUG
   S.begin(115200L);
     #endif
-  OLED oled;  oled.begin(&Adafruit128x64, 0x3d);  oled.setContrast(0x20);
-  analogReference(DEFAULT); auto kT{ DBL(analogRead(A0)) };  // prime the adc pump
+  OLED O;  O.begin(&Adafruit128x64, 0x3d);  O.setContrast(0x20);
+  analogReference(DEFAULT); auto kT{ DBL(analogRead(A0)) }, kTo{ kT };  // prime the adc pump
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
@@ -399,113 +412,104 @@ auto setup() -> void {
   pll( I::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
   pll.phAdj(OFF);
-; AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
-  long knob; if(hasSS) {  knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
-  /**/                    ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1); }
+; AFSS ss; bool bss{0}; if(ss.begin()) bss = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
+  long knob; if(bss) { knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
+  /**/      ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1);
+  /**/      Timer1.initialize(10000000UL); Timer1.attachInterrupt(Trigger); /*Timer1.start();*/ }
   struct Panel {  Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag; Axis axs;
   /**/            bool xmt, dtl, hld, fix, flt; };
   struct { Panel P; u16 sum; } Mem; Panel& P{ Mem.P };
-  XMEM xm; bool hasXM{ xm.begin() }; if( hasXM ) xm.readObject(0, Mem);
+  XMEM X; bool bX{ X.begin() }; if( bX ) X.readObject(0, Mem);
   if( ckMem(&P, sizeof(P)) != Mem.sum ) { // default values
     P.Ref(OSC); P.Pwr(minus4); P.Frq(34*MHz + 375*kHz); P.Lag(1);
     P.axs = Axis::REF; P.xmt = ON, P.dtl = ON; P.hld = OFF; P.fix = ON; P.flt = OFF; };
-  P.fix = 1; P.flt = 1;// = P.dtl;
-; Resolver rslv(pfdf(P.Ref()), IOTA); rf(P.xmt); wdtInit(); auto kTn{ 0U }; long mkT{ 0U };
-  for( bool toDevice{ON}, toHuman{ON}; ON; ) {
+  Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit(); auto kTn{ 0U }; long mkT{ 0U };
+  O.setFont(X11fixed7x14); O.setLetterSpacing(4);
+  pll(I::idle,!P.xmt).set(I::cp3state,!P.xmt).set(I::counterReset,!P.xmt); rf(P.xmt);
+; for( bool toDevice{ON}, toHuman{ON}; ON; ) {
+/**/if( vAcquire ) { /* Do two conversions in immediate succession. Disregard the first. */
+      if(auto toss{analogRead(A0)}) toss = kT = analogRead(A0);
+      noInterrupts(); vAcquire = 0; interrupts();
+      mkT = map(kT, 525, 550, 24999845, 24999685);/*519,24999910,529,24999840*/
+      if(!P.fix && (kTo != kT)) { kTo = kT; toHuman = 1; }
+      if(P.fix) { if(P.Ref() != mkT) { ++kTn; P.Ref( mkT ); toHuman = toDevice = 1; } } }
+/**/if( bss ) { if( !digitalRead(USR) ) { // SeeSaw interrupt
+        if( auto diff{ss.getEncoderPosition() - knob}) {
+          if(0 < diff) ++P.axs; else --P.axs;
+          knob = ss.getEncoderPosition(); toHuman = 1; }
+        else { if( auto act{btns(ss)} ) {
+        /**/toHuman = 1;
+        /**/if(sft == act) { while(btns(ss) == sft); }
+        /**/else { switch(act) {
+                case    inc:  if(!P.hld) {
+                          toDevice = 1;
+                          switch(P.axs) {
+                            case Axis::FREQ:  P.Frq(inc); break;
+                            case Axis::AMPL:  P.Pwr(inc); break;
+                            case Axis::PHAS:  P.Lag(inc); break;
+                            case Axis::REF:   P.Ref(inc); break; } }  break;
+                case    dec:  if(!P.hld) {
+                          toDevice = 1;
+                          switch(P.axs) {
+                            case Axis::FREQ:  P.Frq(dec); break;
+                            case Axis::AMPL:  if(P.Pwr()) P.Pwr(dec); break;
+                            case Axis::PHAS:  P.Lag(dec); break;
+                            case Axis::REF:   P.Ref(dec); break; } }  break;
+                case    lft:  if(!P.hld) {
+                          toDevice = 1;
+                          switch(P.axs) {
+                            case Axis::FREQ:  P.Frq(lft); break;
+                            case Axis::AMPL:  P.Pwr(lft); break;
+                            case Axis::PHAS:  P.Lag(lft); break;
+                            case Axis::REF:   P.Ref(lft); break; } }  break;
+                case    rgt:  if(!P.hld) {
+                          toDevice = 1;
+                          switch(P.axs) {
+                            case Axis::FREQ:  P.Frq(rgt); break;
+                            case Axis::AMPL:  P.Pwr(rgt); break;
+                            case Axis::PHAS:  P.Lag(rgt); break;
+                            case Axis::REF:   P.Ref(rgt); break; } }  break;
+                case sft+inc: if(bX) {
+                          Mem.sum = ckMem(&P, sizeof(P));
+                          X.writeObject(0,Mem); } break;
+                case sft+lft: P.fix = !P.fix; break;
+                case sft+dec: toDevice = 1; rf( P.xmt = !rf() );
+                          pll(I::idle,!P.xmt).set(I::counterReset,!P.xmt);
+                          pll(I::cp3state,!P.xmt); break;
+                case sft+rgt: P.hld = !P.hld; break;
+                default:  break; }
+        /**/    while(btns(ss)); } } } } }
 /**/if( toDevice ) {
       P.Ref(constrain(P.Ref(), 9*MHz, MAX_PFD));
       P.Pwr(constrain(P.Pwr(), minus4, plus5));
       pll(rslv(P.Pwr(), Axis::AMPL));
       P.Frq(constrain(P.Frq(), MIN_FREQ, MAX_FREQ));
-      rslv.pfd(pfdf(P.Ref()));  // Resolver:: needs (updated) pfd value: dependent on Ref.
+      rslv.pfd(pfdf(P.Ref()));  // Results of Resolver:: are dependent on Ref value.
       pll(rslv(P.Frq(), Axis::FREQ));
       P.Lag(constrain(P.Lag(), 1, pll().dnom-1));
       pll(rslv(P.Lag(), Axis::PHAS));
       pll.flush(); toDevice = 0; }
-/**/if( toHuman && !vShutEye ) {
-      oled.clear(); Timer1.restart();
-      if(P.dtl) { oled.setFont(Adafruit5x7); oled.setLetterSpacing(1); }
-      /**/  else  { oled.setFont(X11fixed7x14); oled.setLetterSpacing(4); }
-      if(pll.locked()) oled.print('+'); else oled.print('-');
-      if(rf()) oled.print('+'); else oled.print('-');
-      oled.print(P.fix ? '+' : '-');
+/**/if( toHuman ) {
+      O.clear(); Timer1.start();
+      O.print(P.fix ? 'C' : 'o'); O.print(pll.locked() ? 'L' : 'x'); O.print(rf() ? 'T' : 'i');
       switch(P.axs) {
         default:
-        case Axis::FREQ:  oled.println("Frequency");  P.Frq.disp(oled,'\n',!P.hld); break;
-        case Axis::AMPL:  oled.println("Pwr");        P.Pwr.disp(oled,'\n',!P.hld); break;
-        case Axis::PHAS:  oled.println("Prop");       P.Lag.disp(oled,'\n',!P.hld); break;
-        case Axis::REF:   oled.println("RefOsc");     P.Ref.disp(oled,'\n',!P.hld); break; }
-              #ifdef DEBUG
-      if(P.dtl) {
-        oled.setFont(Adafruit5x7); oled.setLetterSpacing(1);
-        oled.print("rpwr ");  oled.print(pll().rpwr);
-        oled.print(" rdiv "); oled.println(pll().rdiv);
-        oled.print("dnom ");  oled.print(pll().dnom);
-        oled.print(" prop "); oled.println(pll().prop);
-        oled.print("whol ");  oled.print(pll().whol);
-        oled.print(" numr "); oled.println(pll().numr);
-        oled.print(" pfd ");  oled.println(rslv.pfd(),3);
-        oled.print("  kT ");  oled.println(kT,4); }
-        if(1) {//0 != kTn
-          /*pr("f:"); S.print( DBL(rslv()),0 ); pr(' ');*/
-          pr("rpwr:",pll().rpwr); pr("rdiv:",pll().rdiv); pr("prop:",pll().prop);
-          pr("dnom:",pll().dnom); pr("whol:",pll().whol); pr("numr:",pll().numr);
-          pr("pfd:"); S.print(rslv.pfd(),3);  pr(' ');
-          pr("kTn:"); S.print(kTn); pr(' ');
-          pr("kT:"); S.print(kT,4); pr(' ');
-          pr("mkT:"); S.print(mkT); pr(' ');
-          switch(P.axs) {
-            default:
-            case Axis::FREQ:  P.Frq.pr(0); break;
-            case Axis::AMPL:  P.Pwr.pr(0); break;
-            case Axis::PHAS:  P.Lag.pr(0); break;
-            case Axis::REF:   P.Ref.pr(0); break; }
-          S.print(P.fix ? '+' : '-'); pr('\n'); }
-              #endif
-      toHuman = vShutEye = 0; }
-/**/if( vShutEye ) { oled.clear(); snooz(/* Asleep */); /* Awake. */ vShutEye = 0; }
-/**/if( hasSS ) { if( !digitalRead(USR) ) { // Service the human.
-        if(auto act{ btns(ss) })                                { toHuman = 1; // btn intr
-          if(sft != act) { switch(act) {
-              default:                                              break;
-              case    inc:  if(!P.hld) {
-                        toDevice = 1;
-                        switch(P.axs) {
-                          case Axis::FREQ:  P.Frq(inc); break;
-                          case Axis::AMPL:  P.Pwr(inc); break;
-                          case Axis::PHAS:  P.Lag(inc); break;
-                          case Axis::REF:   P.Ref(inc); break; } }  break;
-              case    dec:  if(!P.hld) {
-                        toDevice = 1;
-                        switch(P.axs) {
-                          case Axis::FREQ:  P.Frq(dec); break;
-                          case Axis::AMPL:  if(P.Pwr()) P.Pwr(dec); break;
-                          case Axis::PHAS:  P.Lag(dec); break;
-                          case Axis::REF:   P.Ref(dec); break; } }  break;
-              case    lft:  if(!P.hld) {
-                        toDevice = 1;
-                        switch(P.axs) {
-                          case Axis::FREQ:  P.Frq(lft); break;
-                          case Axis::AMPL:  P.Pwr(lft); break;
-                          case Axis::PHAS:  P.Lag(lft); break;
-                          case Axis::REF:   P.Ref(lft); break; } }  break;
-              case    rgt:  if(!P.hld) {
-                        toDevice = 1;
-                        switch(P.axs) {
-                          case Axis::FREQ:  P.Frq(rgt); break;
-                          case Axis::AMPL:  P.Pwr(rgt); break;
-                          case Axis::PHAS:  P.Lag(rgt); break;
-                          case Axis::REF:   P.Ref(rgt); break; } }  break;
-              case sft+inc: if(hasXM) { Mem.sum = ckMem(&P, sizeof(P));//if(!P.fix) P.Ref(OSC); 
-                                        xm.writeObject(0,Mem); }    break;
-              case sft+lft: P.dtl = !P.dtl;                         break;
-              case sft+dec: rf( P.xmt = !rf() );                    break;
-              case sft+rgt: P.hld = !P.hld;                         break; } } }
-        else { if(auto diff{ ss.getEncoderPosition() - knob }) { if(!P.hld) { // encdr intr
-              toHuman = 1; 
-              if(0 < diff) ++P.axs; else --P.axs;
-              knob = ss.getEncoderPosition(); } } } } }
-/**/if( vAcquire ) { const auto k{ P.flt ? 0.5 : 1.0 }; kT = kT-(k*(kT-analogRead(A0)));
-      vAcquire = 0; mkT = map(kT, 524, 550, 24999850, 24999675);/* toHuman = 1; */
-      if(P.fix && (P.Ref() != mkT)) { ++kTn; P.Ref( mkT ); toDevice = 1;
-  /**/if(P.dtl) toHuman = 1; } } } }
+        case Axis::FREQ:  P.Frq.disp(O,'\n',!P.hld); break;
+        case Axis::AMPL:  P.Pwr.disp(O,'\n',!P.hld); break;
+        case Axis::PHAS:  P.Lag.disp(O,'\n',!P.hld); break;
+        case Axis::REF:   P.Ref.disp(O,'\n',!P.hld); break; }
+      O.println(pll().numr);
+      O.println(rslv.pfd(),3);
+      O.println(kT,0);
+        #ifdef DEBUG
+      pr("numr:",pll().numr);
+      pr("pfd:"); S.print(rslv.pfd(),3);  pr(' ');
+      pr("kTn:"); S.print(kTn); pr(' ');
+      pr("kT:"); S.print(kT,0); pr(' ');
+      pr("mkT:"); S.print(mkT); pr(' ');
+      S.print(P.fix ? 'C' : 'o'); S.print(pll.locked() ? 'L' : 'x'); S.println(rf() ? 'T' : 'i');
+        #endif
+      noInterrupts(); toHuman = vShutter = 0; interrupts(); }
+/**/noInterrupts(); auto toSleep{ vShutter && !vAcquire && !toDevice && !toHuman }; interrupts();
+/**/if( toSleep ) { Timer1.stop(); O.clear(); noInterrupts(); vShutter = 0; interrupts();
+/**/                if(bss) nap(/* Asleep */); /* Awake */ } } }
