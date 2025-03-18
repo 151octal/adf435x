@@ -54,6 +54,12 @@ namespace Hardware {
   auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
+  auto tC = [](const u16& adc) {
+    DBL A[] = { -4.232811E+02, 4.728797E+02, -1.988841E+02, 4.869521E+01, -1.158754E+00 };
+    auto vt{ 3.3/1024*adc };
+    DBL y{ 0 };
+    for(int x{0}; x != sizeof(A)/sizeof(A[0]); ++x) y += A[x] * pow(vt,x);
+    return y; };
   auto tx = [](const PIN& le, void *pByte, int nByte){
     auto p{ static_cast<u8*>(pByte) + nByte };      // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
@@ -500,6 +506,7 @@ auto setup() -> void {
       O.println(rslv.pfd(),3);
       O.println(kT);
         #ifdef DEBUG
+      S.print(tC(kT),1); pr(' ');
       pr("kT:"); S.print(kT); pr(' ');
       pr("mkT:"); S.print(mkT); pr(' ');
       pr("pfd:"); S.print(rslv.pfd(),3);  pr(' ');
