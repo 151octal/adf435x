@@ -68,8 +68,8 @@ namespace Hardware {
     detachInterrupt(digitalPinToInterrupt(USR));  }
   volatile bool vShade{ 0 };
   auto Trigger{ [](){ vShade = 1; } };  // Timer1 ISR target
-  volatile bool vAcquire{ 1 };
-  ISR(WDT_vect) { vAcquire = 1; }
+  volatile bool vAcq{ 1 };
+  ISR(WDT_vect) { vAcq = 1; }
   auto wdtInit() -> void {  // More (ugly) macros. Ugh.
     MCUSR = 0;  // From: Nick Gammon. https://www.gammon.com.au/power
     WDTCSR = bit(WDCE) | bit(WDE);
@@ -308,14 +308,14 @@ class SpecifiedOverlay {
     public:
     Nmrl(i64 bn = 0) { operator()(bn); }
     virtual ~Nmrl() {}
-    auto disp( OLED& O, char term = '\n', const bool carat = true ) -> void {
+    auto disp( OLED& oled, char term = '\n', const bool carat = true ) -> void {
       const auto pstn{ cursor() };
-      const auto ivmd{ O.invertMode() };
+      const auto ivmd{ oled.invertMode() };
       for(size_t x{}; size() != x; x++) {
-        if(carat) { if(size()-1-pstn == x)  O.setInvertMode(1);
-        /**/        /**/              else  O.setInvertMode(0); }
-        O.print(operator[](size()-1-x)); }
-      O.setInvertMode(ivmd); O.print(term); }
+        if(carat) { if(size()-1-pstn == x)  oled.setInvertMode(1);
+        /**/        /**/              else  oled.setInvertMode(0); }
+        oled.print(operator[](size()-1-x)); }
+      oled.setInvertMode(ivmd); oled.print(term); }
     auto operator[](const size_t& pstn) -> const u8 { return numrl[constrain(pstn, 0, Digits-1)]; }
     auto operator()() -> const i64 {
       i64 sum{0};
@@ -364,7 +364,8 @@ auto setup() -> void {
     #ifdef DEBUG
   S.begin(115200L);
     #endif
-  OLED O;  O.begin(&Adafruit128x64, 0x3d);  O.setContrast(0x20);
+  OLED oled; oled.begin(&Adafruit128x64, 0x3d); oled.setContrast(0x20);
+  oled.setFont(X11fixed7x14); oled.setLetterSpacing(4);
   analogReference(DEFAULT); auto Vt{ u16(analogRead(A0)) }, Vo{ Vt };  // prime the adc
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
@@ -414,28 +415,31 @@ auto setup() -> void {
   /**/      ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1);
   /**/      Timer1.initialize(10000000UL); Timer1.attachInterrupt(Trigger); }
   struct Panel {  Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag; Axis axs;
-  /**/            bool xmt, dtl, hld, fix, flt; };
+  /**/            struct { DBL T; u32 F; } cold, hot;
+  /**/            bool xmt, dtl, hld, fix, mde; };
   struct { Panel P; u16 sum; } Mem; Panel& P{ Mem.P };
-  XMEM X; bool hX{ X.begin() }; if( hX ) X.readObject(0, Mem);
+  XMEM X; bool hasX{ X.begin() }; if( hasX ) X.readObject(0, Mem);
   if( ckMem(&P, sizeof(P)) != Mem.sum ) { // default values
     P.Ref(OSC); P.Pwr(minus4); P.Frq(34*MHz + 375*kHz); P.Lag(1);
-    P.axs = Axis::REF; P.xmt = ON, P.dtl = ON; P.hld = OFF; P.fix = ON; P.flt = OFF; };
+    P.axs = Axis::REF;
+    P.cold.T = 18.174; P.cold.F = OSC- 75; P.hot.T = 38.225; P.hot.F = OSC- 300;
+    P.xmt = ON, P.dtl = ON; P.hld = OFF; P.fix = ON; P.mde = OFF; };
   Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit();
-  O.setFont(X11fixed7x14); O.setLetterSpacing(4);
-  pll(I::idle,!P.xmt).set(I::cp3state,!P.xmt).set(I::counterReset,!P.xmt); rf(P.xmt);
-  long mR{ 0U }; char tb{10}, ta{1};
-; for( bool toDevice{ON}, toHuman{ON}; ON; ) {
-/**/if( vAcquire ) { /* WD Timeout. */
-      if(auto toss{analogRead(A0)}) toss = Vt = analogRead(A0); /* Disregard the first adc. */
-      noInterrupts(); vAcquire = 0; interrupts();  // one bit hysteresis...
+  auto idle{ [&pll](bool b){  pll(I::idle,b).set(I::cp3state,b);
+  /**/                        pll(I::counterReset,b).flush(); rf(!b); } };
+  idle(!P.xmt); long mR{ 0U };
+; for( bool toDev{ON}, toHuman{ON}; ON; ) {
+/**/if( vAcq ) { /* WD Timeout. */
+      if(auto toss{analogRead(A0)}) toss = Vt = analogRead(A0); /* Disregard the first. */
+      noInterrupts(); vAcq = 0; interrupts();  // one bit hysteresis...
       if(P.fix) if(auto dV{int(Vo) - int(Vt)}) { dV = (0>dV) ? -dV : dV; Vt = (1<dV) ? Vt : Vo; }
         /* With significant precision, use Ref(value) equal to a (2-point) map of
         temperature: Ref (in Hz) = MapFunc(T,{T1,F1},{T2,F2}), with the sensor temperature as
         a function of sensor resistance: T (in ºC) = Tr(ohms), and the sensor
         resistance as a function of sensor voltage: R (in Ohms) = Rt(Vt) */
-      mR = map( 1e3* Tr(Rt(Vt)), 1e3* 18.174, 1e3* 38.225, OSC- 75, OSC- 300 );
+      mR = map( 1e3* Tr(Rt(Vt)), 1e3* P.cold.T, 1e3* P.hot.T, P.cold.F, P.hot.F );
       if(!P.fix && (Vo != Vt)) { Vo = Vt; toHuman = 1; }
-      if(P.fix) { if(P.Ref() != mR) { P.Ref( mR ); toHuman = toDevice = 1; } } }
+      if(P.fix) { if(P.Ref() != mR) { P.Ref( mR ); toHuman = toDev = 1; } } }
 /**/if( hasSS ) { if( !digitalRead(USR) ) { // SeeSaw interrupt
         if( auto diff{ss.getEncoderPosition() - knob}) {
           if(0 < diff) ++P.axs; else --P.axs;
@@ -444,45 +448,46 @@ auto setup() -> void {
         /**/toHuman = 1;
         /**/if(sft == act) { while(btns(ss) == sft); }
         /**/else { switch(act) {
+                case lft+inc: if(P.xmt) { P.hot.T = Tr(Rt(Vt)); P.hot.F = P.Ref(); }
+                              else      { P.cold.T = Tr(Rt(Vt)); P.cold.F = P.Ref(); }
+                              /* fall thru */
+                case sft+inc: if(hasX) {
+                          Mem.sum = ckMem(&P, sizeof(P));
+                          X.writeObject(0,Mem); } pr("save\n"); break;
+                case sft+lft: P.fix = !P.fix; break;
+                case sft+dec: toDev = 1; P.xmt = !rf(); idle(!P.xmt); break;
+                case sft+rgt: P.hld = !P.hld; break;
                 case    inc:  if(!P.hld) {
-                          toDevice = 1;
+                          toDev = 1;
                           switch(P.axs) {
                             case Axis::FREQ:  P.Frq(inc); break;
                             case Axis::AMPL:  P.Pwr(inc); break;
                             case Axis::PHAS:  P.Lag(inc); break;
                             case Axis::REF:   P.Ref(inc); break; } }  break;
                 case    dec:  if(!P.hld) {
-                          toDevice = 1;
+                          toDev = 1;
                           switch(P.axs) {
                             case Axis::FREQ:  P.Frq(dec); break;
                             case Axis::AMPL:  if(P.Pwr()) P.Pwr(dec); break;
                             case Axis::PHAS:  P.Lag(dec); break;
                             case Axis::REF:   P.Ref(dec); break; } }  break;
                 case    lft:  if(!P.hld) {
-                          toDevice = 1;
+                          toDev = 1;
                           switch(P.axs) {
                             case Axis::FREQ:  P.Frq(lft); break;
                             case Axis::AMPL:  P.Pwr(lft); break;
                             case Axis::PHAS:  P.Lag(lft); break;
                             case Axis::REF:   P.Ref(lft); break; } }  break;
                 case    rgt:  if(!P.hld) {
-                          toDevice = 1;
+                          toDev = 1;
                           switch(P.axs) {
                             case Axis::FREQ:  P.Frq(rgt); break;
                             case Axis::AMPL:  P.Pwr(rgt); break;
                             case Axis::PHAS:  P.Lag(rgt); break;
                             case Axis::REF:   P.Ref(rgt); break; } }  break;
-                case sft+inc: if(hX) {
-                          Mem.sum = ckMem(&P, sizeof(P));
-                          X.writeObject(0,Mem); } break;
-                case sft+lft: P.fix = !P.fix; break;
-                case sft+dec: toDevice = 1; rf( P.xmt = !rf() );
-                          pll(I::idle,!P.xmt).set(I::counterReset,!P.xmt);
-                          pll(I::cp3state,!P.xmt).flush(); break;
-                case sft+rgt: P.hld = !P.hld; break;
                 default:  break; }
         /**/  while(btns(ss)); } } } } }
-/**/if( toDevice ) {
+/**/if( toDev ) {
       P.Pwr(constrain(P.Pwr(), minus4, plus5));
       pll(rslv(P.Pwr(), Axis::AMPL));
       P.Ref(constrain(P.Ref(), 9*MHz, MAX_PFD));
@@ -491,20 +496,20 @@ auto setup() -> void {
       pll(rslv(P.Frq(), Axis::FREQ));
       P.Lag(constrain(P.Lag(), 1, pll().dnom-1));
       pll(rslv(P.Lag(), Axis::PHAS));
-      pll.flush(); toDevice = 0; }
+      pll.flush(); toDev = 0; }
 /**/if( toHuman ) {
-      O.clear(); Timer1.start();
-      O.print(rf() ? " RUN " : "IDLE ");
-      O.print(pll.locked() ? "LOCK " : "UNLK ");
-      O.println(P.fix ? "FIX" : "OPN");
+      oled.clear(); Timer1.start();
+      oled.print(rf() ? " RUN " : "IDLE ");
+      oled.print(pll.locked() ? "LOCK " : "UNLK ");
+      oled.println(P.fix ? "FIX" : "OPN");
       switch(P.axs) {
         default:
-        case Axis::FREQ:  P.Frq.disp(O,'\n',!P.hld); break;
-        case Axis::AMPL:  P.Pwr.disp(O,'\n',!P.hld); break;
-        case Axis::PHAS:  P.Lag.disp(O,'\n',!P.hld); break;
-        case Axis::REF:   P.Ref.disp(O,'\n',!P.hld); break; }
-      O.println(Tr(Rt(Vt)),3);
-      O.println(rslv.pfd(),3);
+        case Axis::FREQ:  P.Frq.disp(oled,'\n',!P.hld); break;
+        case Axis::AMPL:  P.Pwr.disp(oled,'\n',!P.hld); break;
+        case Axis::PHAS:  P.Lag.disp(oled,'\n',!P.hld); break;
+        case Axis::REF:   P.Ref.disp(oled,'\n',!P.hld); break; }
+      oled.println(Tr(Rt(Vt)),3);
+      oled.println(rslv.pfd(),3);
         #ifdef DEBUG
       /**/pr("T:"); S.print(Tr(Rt(Vt)),3); pr(' ');
       pr("Rt:"); S.print(Rt(Vt),0); pr(' ');
@@ -515,6 +520,6 @@ auto setup() -> void {
       S.print(rf() ? 'R' : '-'); S.print(pll.locked() ? 'L' : '-'); S.println(P.fix ? 'F' : '-');
         #endif
       noInterrupts(); toHuman = vShade = 0; interrupts(); }
-/**/noInterrupts(); auto toSleep{ vShade && !vAcquire && !toDevice && !toHuman }; interrupts();
-/**/if( toSleep ) { Timer1.stop(); O.clear(); noInterrupts(); vShade = 0; interrupts();
+/**/noInterrupts(); auto wink{ (P.fix && vShade) && !vAcq && !toDev && !toHuman }; interrupts();
+/**/if( wink ) { Timer1.stop(); oled.clear(); noInterrupts(); vShade = 0; interrupts();
 /**/                if(hasSS) snuz(/* Asleep */); /* Awake */ } } }
