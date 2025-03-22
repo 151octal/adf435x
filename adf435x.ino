@@ -32,17 +32,8 @@
   auto pr( const char& cc ) -> const size_t { return S.print(cc); }
   auto pr( const   u8& uc ) -> const size_t { return S.print(uc); }
   auto pr( const char* const s ) -> const size_t { return S.print(s); }
-    /*
-    auto pr( i64 arg, char t = 0, int b = DEC ) -> const size_t {
-      if(10 == b) return S.print('-') + pr( 0>arg ? -arg : arg, t, b);
-      return pr(arg, t, b);  }
-    auto pr( u64 arg, char t = 0, int b = DEC ) -> const size_t {
-      char bfr[sizeof(arg) + 1], *s{ &bfr[sizeof(bfr)-1] }; *s = 0;
-      b = (b < 2) ? 10 : b;
-      do { auto c{ char(arg % b) }; arg /= b; *--s = c < 10 ? c+'0' : c+'A'-10; } while( arg );
-      return S.write(s) + S.print(t);  } */
-    auto pr( const u16& arg, char term = 0, int num = DEC ) -> const size_t {
-      return S.print(arg, num) + pr(term); }
+  auto pr( const u16& arg, char term = 0, int num = DEC ) -> const size_t {
+    return S.print(arg, num) + pr(term); }
   auto pr( const char* const s, const u16& arg, char term = ' ', int num = DEC ) -> const size_t {
     return pr(s) + pr(arg, term, num); }
       #endif
@@ -54,13 +45,13 @@ namespace Hardware {
   auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
-  auto tC = [](const u16& adc) {
-    DBL A[] = { -4.232811E+02, 4.728797E+02, -1.988841E+02, 4.869521E+01, -1.158754E+00 };
-    auto vt{ 3.3/1024*adc };
-    DBL y{ 0 };
-    for(int x{0}; x != sizeof(A)/sizeof(A[0]); ++x) y += A[x] * pow(vt,x);
-    return y; };
-  auto tx = [](const PIN& le, void *pByte, int nByte){
+  const DBL CT[] = { -2.724350E+02, 5.310830E-02, -3.504515E-06, 1.405146E-10, -2.299616E-15 };
+  auto Tr = [](const DBL& ohm) {
+    auto y{ 0.0 };
+    for(int x{0}; x != sizeof(CT)/sizeof(CT[0]); ++x) y += CT[x] * pow(ohm,x); return y; };
+  const auto biasR{ 9.500e3 };
+  auto Rt{ [](const u16& adc){ return adc * biasR / (1024-adc); } };
+  auto send = [](const PIN& le, void *pByte, int nByte){
     auto p{ static_cast<u8*>(pByte) + nByte };      // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
@@ -75,6 +66,8 @@ namespace Hardware {
     interrupts();   // End critical section.
     sleep_mode();
     detachInterrupt(digitalPinToInterrupt(USR));  }
+  volatile bool vShade{ 0 };
+  auto Trigger{ [](){ vShade = 1; } };  // Timer1 ISR target
   volatile bool vAcquire{ 1 };
   ISR(WDT_vect) { vAcquire = 1; }
   auto wdtInit() -> void {  // More (ugly) macros. Ugh.
@@ -82,8 +75,6 @@ namespace Hardware {
     WDTCSR = bit(WDCE) | bit(WDE);
     WDTCSR = (bit(WDIE)) | (bit(WDP3)); // Four seconds? Fix me.
     wdt_reset();  }
-  volatile bool vShutter{ 0 };
-  auto Trigger{ [](){ vShutter = 1; } };  // Timer1 ISR target
 } namespace HW = Hardware; namespace Synthesis {
  constexpr  i64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz };
   constexpr i64   MAX_VCO{ 4400000000 };            // 4400 MHz.
@@ -97,7 +88,7 @@ namespace Hardware {
   constexpr auto  MOD{ size ? M4 * M0 : M4 };       // Pick a modulus (not divisible by {2,3}).
   static_assert((4096>MOD) && (MOD%2) && (MOD%3));  // 12 bits with spur avoidance.
   constexpr auto  OSC{ 25000000U };                 // Nominal osc. freq. Yours may be different.
-  constexpr   u16  IOTA{ 1000 };                    // Choose IOTA such that R_COUNT is exact.
+  constexpr  u16  IOTA{ 500 };                     // Choose IOTA such that R_COUNT is exact.
   constexpr auto  R_COUNT{ u16(OSC / IOTA / MOD) }; // REF / Rcounter = PFD = Modulus * IOTA
   constexpr auto  TGLR{ ON }, DBLR{ TGLR };        // OFF: ONLY if OSC is a 50% duty square wave.
  constexpr  auto  PFD{ DBL(OSC) * (1+DBLR) / (1+TGLR) / R_COUNT };
@@ -157,8 +148,8 @@ namespace Hardware {
     Human deduced via inspection.
       OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
       RANK:                 RANK = OVERLAYED_REGISTERS - 1 - Datasheet Register Number.
-                            tx() in ascending RANK order, unless not dirty. Thus, datasheet
-                            register '0' is always tx()'d last (and will always need to be tx()'d).
+                            send() in ascending RANK order, unless not dirty. Thus, datasheet
+                            register '0' is always send()'d last (and will always need to be sent).
                             See flush() below.
       OFFSET:               Zero based position of the field's least significant bit.
       WIDTH:                Correct. The number of bits in a field (and is at least one).
@@ -213,7 +204,7 @@ class SpecifiedOverlay {
       case 16:  cx = ovl.NR - 4; break;   /* r4 ••• */ }
     ovl.durty = 0;
     SPI.beginTransaction( ovl.settings );
-    for(/* empty */; ovl.NR != cx; ++cx) HW::tx(le, &ovl.reg[cx], sizeof(ovl.reg[cx]) );
+    for(/* empty */; ovl.NR != cx; ++cx) HW::send(le, &ovl.reg[cx], sizeof(ovl.reg[cx]) );
     SPI.endTransaction();
     return *this; }
   auto lock() -> void { HW::hardWait(ld); } // Wait on active ld pin, until lock is indicated.
@@ -364,16 +355,17 @@ auto setup() -> void {
     // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
     // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP); // ignored
-  pinMode(A0, INPUT_PULLUP);                        // thermistor bias (x4) gives 20C ≈ half scale
+  pinMode(A0, INPUT_PULLUP);                        // PTC thermistor bias (x4)
     pinMode(A1, INPUT_PULLUP);                        // short to A0
     pinMode(A2, INPUT_PULLUP);                        // short to A1
-    pinMode(A3, INPUT_PULLUP);                        // short to A2
+    pinMode(A3, INPUT_PULLUP);                        // short to A2, gives 20C about half scale
+                                                      // See HW::Rt()
   Wire.begin();  Wire.setClock(400000L);  SPI.begin();
     #ifdef DEBUG
   S.begin(115200L);
     #endif
   OLED O;  O.begin(&Adafruit128x64, 0x3d);  O.setContrast(0x20);
-  analogReference(DEFAULT); auto kT{ u16(analogRead(A0)) }, kTo{ kT };  // prime the adc pump
+  analogReference(DEFAULT); auto Vt{ u16(analogRead(A0)) }, Vo{ Vt };  // prime the adc
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
@@ -416,8 +408,9 @@ auto setup() -> void {
   pll( I::auxFBselect, !Feedback ); // See EEK!, above.                                      (34)
   pll( I::ledMode, LEDmode::lockDetect );                               // Ding. Winner!     (35)
   pll.phAdj(OFF);
-; AFSS ss; bool hss{0}; if(ss.begin()) hss = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
-  long knob; if(hss) { knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
+    // Hardware not required but written for Adafruit SeeSaw P/N: 5740 only.
+; AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
+  long knob; if(hasSS) { knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
   /**/      ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,1);
   /**/      Timer1.initialize(10000000UL); Timer1.attachInterrupt(Trigger); }
   struct Panel {  Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag; Axis axs;
@@ -427,17 +420,23 @@ auto setup() -> void {
   if( ckMem(&P, sizeof(P)) != Mem.sum ) { // default values
     P.Ref(OSC); P.Pwr(minus4); P.Frq(34*MHz + 375*kHz); P.Lag(1);
     P.axs = Axis::REF; P.xmt = ON, P.dtl = ON; P.hld = OFF; P.fix = ON; P.flt = OFF; };
-  Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit(); auto kTn{ 0U }; long mkT{ 0U };
+  Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit();
   O.setFont(X11fixed7x14); O.setLetterSpacing(4);
   pll(I::idle,!P.xmt).set(I::cp3state,!P.xmt).set(I::counterReset,!P.xmt); rf(P.xmt);
+  long mR{ 0U }; char tb{10}, ta{1};
 ; for( bool toDevice{ON}, toHuman{ON}; ON; ) {
-/**/if( vAcquire ) { /* WD timeout. Do two A/D conversions in succession. Disregard the first. */
-      if(auto toss{analogRead(A0)}) toss = kT = analogRead(A0);
-      noInterrupts(); vAcquire = 0; interrupts();
-      mkT = map(kT, 525, 550, 24999845, 24999685);/*519,24999910,529,24999840*/
-      if(!P.fix && (kTo != kT)) { kTo = kT; toHuman = 1; }
-      if(P.fix) { if(P.Ref() != mkT) { ++kTn; P.Ref( mkT ); toHuman = toDevice = 1; } } }
-/**/if( hss ) { if( !digitalRead(USR) ) { // SeeSaw interrupt
+/**/if( vAcquire ) { /* WD Timeout. */
+      if(auto toss{analogRead(A0)}) toss = Vt = analogRead(A0); /* Disregard the first adc. */
+      noInterrupts(); vAcquire = 0; interrupts();  // one bit hysteresis...
+      if(P.fix) if(auto dV{int(Vo) - int(Vt)}) { dV = (0>dV) ? -dV : dV; Vt = (1<dV) ? Vt : Vo; }
+        /* With significant precision, use Ref(value) equal to a (2-point) map of
+        temperature: Ref (in Hz) = MapFunc(T,{T1,F1},{T2,F2}), with the sensor temperature as
+        a function of sensor resistance: T (in ºC) = Tr(ohms), and the sensor
+        resistance as a function of sensor voltage: R (in Ohms) = Rt(Vt) */
+      mR = map( 1e3* Tr(Rt(Vt)), 1e3* 18.174, 1e3* 38.225, OSC- 75, OSC- 300 );
+      if(!P.fix && (Vo != Vt)) { Vo = Vt; toHuman = 1; }
+      if(P.fix) { if(P.Ref() != mR) { P.Ref( mR ); toHuman = toDevice = 1; } } }
+/**/if( hasSS ) { if( !digitalRead(USR) ) { // SeeSaw interrupt
         if( auto diff{ss.getEncoderPosition() - knob}) {
           if(0 < diff) ++P.axs; else --P.axs;
           knob = ss.getEncoderPosition(); toHuman = 1; }
@@ -479,7 +478,7 @@ auto setup() -> void {
                 case sft+lft: P.fix = !P.fix; break;
                 case sft+dec: toDevice = 1; rf( P.xmt = !rf() );
                           pll(I::idle,!P.xmt).set(I::counterReset,!P.xmt);
-                          pll(I::cp3state,!P.xmt); break;
+                          pll(I::cp3state,!P.xmt).flush(); break;
                 case sft+rgt: P.hld = !P.hld; break;
                 default:  break; }
         /**/  while(btns(ss)); } } } } }
@@ -495,26 +494,27 @@ auto setup() -> void {
       pll.flush(); toDevice = 0; }
 /**/if( toHuman ) {
       O.clear(); Timer1.start();
-      O.print(P.fix ? 'L' : '-'); O.print(pll.locked() ? 'K' : '-'); O.print(rf() ? 'R' : '-');
+      O.print(rf() ? " RUN " : "IDLE ");
+      O.print(pll.locked() ? "LOCK " : "UNLK ");
+      O.println(P.fix ? "FIX" : "OPN");
       switch(P.axs) {
         default:
         case Axis::FREQ:  P.Frq.disp(O,'\n',!P.hld); break;
         case Axis::AMPL:  P.Pwr.disp(O,'\n',!P.hld); break;
         case Axis::PHAS:  P.Lag.disp(O,'\n',!P.hld); break;
         case Axis::REF:   P.Ref.disp(O,'\n',!P.hld); break; }
-      O.println(pll().numr);
+      O.println(Tr(Rt(Vt)),3);
       O.println(rslv.pfd(),3);
-      O.println(kT);
         #ifdef DEBUG
-      S.print(tC(kT),1); pr(' ');
-      pr("kT:"); S.print(kT); pr(' ');
-      pr("mkT:"); S.print(mkT); pr(' ');
-      pr("pfd:"); S.print(rslv.pfd(),3);  pr(' ');
-      pr("numr:",pll().numr);
-      pr("kTn:"); S.print(kTn); pr(' ');
-      S.print(P.fix ? 'L' : '-'); S.print(pll.locked() ? 'K' : '-'); S.print(rf() ? "R\n" : "-\n");
+      /**/pr("T:"); S.print(Tr(Rt(Vt)),3); pr(' ');
+      pr("Rt:"); S.print(Rt(Vt),0); pr(' ');
+      pr("Vt:"); S.print(Vt); pr(' ');
+      pr("mR:"); S.print(mR); pr(' ');
+      if(P.fix) { pr("pfd:"); S.print(rslv.pfd(),3);  pr(' '); }
+      else      { pr("Ref:"); P.Ref.pr(); }
+      S.print(rf() ? 'R' : '-'); S.print(pll.locked() ? 'L' : '-'); S.println(P.fix ? 'F' : '-');
         #endif
-      noInterrupts(); toHuman = vShutter = 0; interrupts(); }
-/**/noInterrupts(); auto toSleep{ vShutter && !vAcquire && !toDevice && !toHuman }; interrupts();
-/**/if( toSleep ) { Timer1.stop(); O.clear(); noInterrupts(); vShutter = 0; interrupts();
-/**/                if(hss) snuz(/* Asleep */); /* Awake */ } } }
+      noInterrupts(); toHuman = vShade = 0; interrupts(); }
+/**/noInterrupts(); auto toSleep{ vShade && !vAcquire && !toDevice && !toHuman }; interrupts();
+/**/if( toSleep ) { Timer1.stop(); O.clear(); noInterrupts(); vShade = 0; interrupts();
+/**/                if(hasSS) snuz(/* Asleep */); /* Awake */ } } }
