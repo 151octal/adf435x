@@ -29,7 +29,7 @@
       #ifdef DEBUG
   constexpr auto& S{ Serial };  // sHORTHAND.
   constexpr auto& T1{ Timer1 }; // ditto
-  auto pr( const char& cc ) -> const size_t { return S.print(cc); }
+  auto pr( const char& cc = ' ' ) -> const size_t { return S.print(cc); }
   auto pr( const   u8& uc ) -> const size_t { return S.print(uc); }
   auto pr( const char* const s ) -> const size_t { return S.print(s); }
   auto pr( const u16& arg, char term = 0, int num = DEC ) -> const size_t {
@@ -39,19 +39,13 @@
       #endif
 namespace Hardware {
   enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD = 7, LE = 10 };
+  constexpr auto VS{ A0 };  // Sensor power
   const auto ckMem = [](void* vp, size_t n) {
     auto p{ static_cast<u8*>(vp) };
     u16 sum{0}; while(n--) { sum += *(p++); sum %= 255; } return sum; };
   auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
   auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
   auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
-  const DBL tmp61[] = { -2.724350E+02, 5.310830E-02, -3.504515E-06, 1.405146E-10, -2.299616E-15 };
-  auto Kr = [](const DBL& ohm) {
-    auto y{ 273.0 };  // Kelvin
-    for(int x{0}; x != sizeof(tmp61)/sizeof(tmp61[0]); ++x) y += tmp61[x]*pow(ohm,x); return y; };
-  const auto biasR{ 9.500e3 };
-  auto Rk{ [](const u16& adc){ return adc * biasR / (1024-adc); } }; // 9540ohm,18ºC 61.056ohm/º
-  auto pRk{ [&](const u16& adc, char t = ' '){ return S.print(Rk(adc),0)+S.print(t); } };
   auto send = [](const PIN& le, void *pByte, int nByte){
     auto p{ static_cast<u8*>(pByte) + nByte };      // Most significant BYTE first.
     digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
@@ -344,6 +338,9 @@ class SpecifiedOverlay {
   void setup() __attribute__ ((noreturn));
   //https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noreturn-function-attribute
   //  No loop(){} haHahaha!
+  //  "Where shall I begin, please, your Majesty?" he asked. "Begin at the beginning," the King
+  //  said gravely, "ang go on till you come to the end: then stop." 'Alice's Advetures in Wonderland'
+  //  Lewis Carroll. London: Macmillan and Co. 1865. 
 auto setup() -> void {
   using namespace Hardware;
   pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable
@@ -352,22 +349,16 @@ auto setup() -> void {
   digitalWrite(static_cast<u8>(PIN::LE), 1);
   pinMode(static_cast<u8>(PIN::USR), INPUT_PULLUP); // SeeSaw interrupt
   pinMode(static_cast<u8>(PIN::LD), INPUT);         // lock detect
-    // pinMode(static_cast<u8>(PIN::LE_B), OUTPUT);
-    // digitalWrite(static_cast<u8>(PIN::LE_B), 1);
-    // pinMode(static_cast<u8>(PIN::LD_B), INPUT);
   pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP); // ignored
-  pinMode(A0, INPUT_PULLUP);                        // PTC thermistor bias (x4)
-    pinMode(A1, INPUT_PULLUP);                        // short to A0
-    pinMode(A2, INPUT_PULLUP);                        // short to A1
-    pinMode(A3, INPUT_PULLUP);                        // short to A2, gives 20C about half scale
-                                                      // See HW::Rk()
+  pinMode(VS, OUTPUT); digitalWrite(VS, OFF);       // Sensor supply
+  pinMode(A1, INPUT);                               // Sensor
+  analogReference(INTERNAL); auto adc{analogRead(A1)}, old{ adc };  // prime the adc
   Wire.begin();  Wire.setClock(400000L);  SPI.begin();
     #ifdef DEBUG
   S.begin(115200L);
     #endif
   OLED oled; oled.begin(&Adafruit128x64, 0x3d); oled.setContrast(0x20);
   oled.setFont(X11fixed7x14); oled.setLetterSpacing(4);
-  analogReference(DEFAULT); auto Vk{analogRead(A0)}, Vo{ Vk };  // prime the adc
   using namespace Synthesis;
 ; SpecifiedOverlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
@@ -413,42 +404,37 @@ auto setup() -> void {
     // Hardware not required but written for Adafruit SeeSaw P/N: 5740 only.
 ; AFSS ss; bool hasSS{0}; if(ss.begin()) hasSS = (5740 == (0xFFFF & (ss.getVersion() >> 16)));
   long knob; if(hasSS) { knob = ss.getEncoderPosition(); ss.enableEncoderInterrupt();
-  /**/      ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,ON);
-  /**/      T1.initialize(10000000UL); T1.attachInterrupt(Trig1); }
+  /**/ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,ON);
+  /**/T1.initialize(10000000UL); T1.attachInterrupt(Trig1); }
   struct Persist {  Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag;
-  /**/            struct { DBL K; i64 W; } cld, hot; Axis axs; bool xmt, hld, lup; };
+  /**/              int K; long W; Axis axs; bool xmt, hld, lup; };
   struct { Persist P; u16 sum; } Mem; Persist& P{ Mem.P };
-  auto slp{ [&P](){ return (P.hot.W-P.cld.W) / (P.hot.K-P.cld.K); } };
-  auto pslp{ [&](char t = ' '){ return S.print( slp(),3 )+S.print(t); } };
-  auto pKr{ [&](const DBL r, char t = ' '){ return S.print(Kr(r)-273,3)+S.print(t); } };
-  auto xmit{ [&pll](bool b){  pll(I::idle,!b).set(I::cp3state,!b);
-  /**/                        pll(I::counterReset,!b).flush(); rf(b); } };
+  constexpr auto Gt{ 226.5e-6 /* Volt per ºK */ / 562 /* Ohms */ }; /* Ampere per ºK */
+  auto Tk{ [Gt](const int i10){ return (100e-6 + i10*1.1/1024/26.7e3) / Gt; } }; // Kirchhoff
+  enum Scale { Kelvin, Celsius, Fahrenheit };
+  auto pT{ [](const DBL& tk, int scale, int n = 1, char t = ' '){ switch (scale) {
+    default:  case Kelvin: return S.print(tk,n)+S.print(t);
+              case Celsius: return S.print(tk-273,n)+S.print(t);
+              case Fahrenheit: return S.print((tk-273)*9/5+32,n)+S.print(t);  } } };
+  auto xmit{ [&pll](bool b){ pll(I::idle,!b).set(I::cp3state,!b).flush(); rf(b); } };
   XMEM X; bool hasX{ X.begin() }; if( hasX ) X.readObject(0, Mem);
   if( ckMem(&P, sizeof(P)) != Mem.sum ) { // default values
     P.Ref(OSC);/* P.Pwr(minus4); P.Frq(34*MHz + 375*kHz);*/
     P.axs = Axis::REF; P.xmt = OFF; P.hld = OFF; P.lup = ON; /*}*/
     P.Lag(1); P.Pwr(minus4); P.Frq(100*MHz);
-    P.cld.K = 273+ 17.555; P.cld.W = OSC- 65; P.hot.K = 273+ 30.016; P.hot.W = OSC- 205; };/*
-    P.hot.K = 273+ 26.259; P.hot.W = OSC- 140;*/
+    P.K = 571; P.W = 24999798; };
   Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit();
-  xmit(P.xmt); long M{ 0U };
+  xmit(P.xmt); long W{ 0 };
 ; for( bool toDev{ON}, toHuman{ON}; ON; ) {
-/**/if( vAcq ) { /* WD Timeout. See HW::wdtInit(). */
-      if(auto toss{analogRead(A0)}) toss = Vk = analogRead(A0); /* Disregard the first. */
-      noInterrupts(); vAcq = 0; interrupts();
-        //  if(P.lup) { if(auto dV{Vo - Vk}) { dV = (0>dV) ? -dV : dV; Vk = (1<dV) ? Vk : Vo; } }
-      if(Vo != Vk) { Vo = Vk; toHuman = 1; }
-        //290.555,9500,512,24999935 26.259,10034,526,24999860 303.016,10272,532,24999815
-        //291.174,9537,513
-        //291.793,9575,514,
-        //292.413,9612,515,24999935 25.635,9995,525,24999860 3.22,383,10,75
-        /* Implement feedback with Ref(value) equal to a (2-point) map of (Kelvin)
-        temperature: M (in Hz) = MapFunc(K,{K1,F1},{K2,F2}), with the sensor
-        temperature as a function of sensor resistance: K (in Kelvin)= Kr(ohms), and the
-        sensor resistance as a function of sensor voltage: R (in Ohms) = Rk(Vk).
-        That is, M = MF(Kr(Rk(Vk)),{K1,F1},{K2,F2}). */
-      M = map( 1e3* Kr(Rk(Vk)), 1e3* P.cld.K, 1e3* P.hot.K, P.cld.W, P.hot.W );
-      if(P.lup) { if( 0 != (P.Ref() - M)) { P.Ref( M ); toHuman = toDev = 1; } } }
+/**/if( vAcq ) { /* WD Timeout interval set in HW::wdtInit(). */
+      digitalWrite(VS, ON); delay(1); /* Power the sensor & wait for it to stabilize. */
+      if(auto toss{analogRead(A1)}) toss = adc = analogRead(A1); /* Disregard the first. */
+      digitalWrite(VS, OFF); noInterrupts(); vAcq = 0; interrupts();
+      if(old != adc && !P.lup) { old = adc; toHuman = 1; }
+      auto dWK{ -12.6 }; // Hertz per ºK 
+      W = P.W + (Tk(adc) - Tk(P.K)) * dWK;  // W = Temperature dependent estimate of Ref
+      if(P.lup) { if( auto dR{ int(P.Ref() - W) } ) { constexpr u8 epsilon{ 4 };
+  /**/  if((dR < 0 ? -dR : dR) > epsilon) { P.Ref( W ); toHuman = toDev = 1; } } } }
 /**/if( toDev ) {
       P.Pwr(constrain(P.Pwr(), minus4, plus5));
       pll(rslv(P.Pwr(), Axis::AMPL));
@@ -470,13 +456,12 @@ auto setup() -> void {
         case Axis::AMPL:  P.Pwr.disp(oled,'\n',!P.hld); break;
         case Axis::PHAS:  P.Lag.disp(oled,'\n',!P.hld); break;
         case Axis::REF:   P.Ref.disp(oled,'\n',!P.hld); break; }
-      oled.print(Vk); oled.print(' ');
-      oled.println(Kr(Rk(Vk))-273,3);
-        /*oled.println(rslv.pfd(),3);*/
+      oled.print(adc); oled.print(' ');
+      oled.println(Tk(adc)-273,1);
         #ifdef DEBUG
-      /**/ pKr(Rk(Vk)); /**/ pRk(Vk); /**/ S.print(Vk); pr(' ');
-      /**/ pslp(' '); /**/ S.print(M); pr(' '); S.print(OSC-u32(P.Ref())); /**/ pr(' ');
-      if(!P.lup) { /**/ pr("Ref:"); P.Ref.pr(); }
+      S.print(adc); pr();/**/ pT(Tk(adc),Celsius,1);
+      if(!P.lup) { pr('w'); S.print(W); pr(); }
+      pr('r'); P.Ref.pr();
       S.print(rf() ? 'R' : '\0'); S.print(pll.locked() ? 'L' : '\0');
       S.print(P.lup ? 'A' : '\0'); S.println(P.hld ? '\0' : '!');
         #endif
@@ -489,9 +474,8 @@ auto setup() -> void {
         /**/toHuman = 1;
         /**/if(sft == act) { while(btns(ss) == sft); }
         /**/else { switch(act) {
-                case sft+inc: if(hasX) { if(!P.lup && !P.hld) { P.lup = ON;/**/
-                                if(P.xmt) { P.hot.K = Kr(Rk(Vk)); P.hot.W = P.Ref(); pr("H"); }
-                                else      { P.cld.K = Kr(Rk(Vk)); P.cld.W = P.Ref(); pr("C"); } }
+                case sft+inc: if(hasX) { if(!P.lup && !P.hld) { P.lup = ON; P.hld = OFF;/**/
+                                P.K = adc; P.W = P.Ref(); pr('K'); }
                                 Mem.sum = ckMem(&P, sizeof(P)); X.writeObject(0,Mem); }
                                 pr(" STO\n"); break;
                 case sft+lft: P.lup = !P.lup; break;
