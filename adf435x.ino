@@ -17,8 +17,6 @@
     #include <SPI.h>
     #include <TimerOne.h>
     #include <Wire.h>
-  #define DEBUG
-  //  #undef DEBUG
   using i64 = long long;
   using u64 = unsigned long long;
   using AFSS = Adafruit_seesaw;
@@ -26,7 +24,6 @@
   using OLED = SSD1306AsciiWire;  // Because the Adafruit library is too big. (both)
   using XMEM = Adafruit_EEPROM_I2C;
   enum Enable : u8 { OFF = 0, ON = 1 };
-      #ifdef DEBUG
   constexpr auto& S{ Serial };  // sHORTHAND.
   constexpr auto& T1{ Timer1 }; // ditto
   auto pr( const char& cc = ' ' ) -> const size_t { return S.print(cc); }
@@ -36,21 +33,25 @@
     return S.print(arg, num) + pr(term); }
   auto pr( const char* const s, const u16& arg, char term = ' ', int num = DEC ) -> const size_t {
     return pr(s) + pr(arg, term, num); }
-      #endif
 namespace Hardware {
-  enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD = 7, LE = 10 };
-  constexpr auto VS{ A0 };  // Sensor power
+  enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD = 7, LE = 10, VS = A0 };
+  auto Tk{ [](const int i10){ return (100e-6+i10*1.1/1024/26.7e3)/226.5e-6*562; } }; // Kirchhoff
+  enum Scale { Kelvin, Celsius, Fahrenheit };
+  auto pT{ [](const DBL& tk, int scale, int n = 1, char t = ' '){ switch (scale) {
+    default:  case Kelvin: return S.print(tk,n)+S.print(t);
+              case Celsius: return S.print(tk-273,n)+S.print(t);
+              case Fahrenheit: return S.print((tk-273)*9/5+32,n)+S.print(t);  } } };
   const auto ckMem = [](void* vp, size_t n) {
     auto p{ static_cast<u8*>(vp) };
     u16 sum{0}; while(n--) { sum += *(p++); sum %= 255; } return sum; };
-  auto hardWait{ [](const PIN& pin){ while( !digitalRead( static_cast<u8>(pin) )); } };
-  auto rf(bool enable) -> void { digitalWrite( static_cast<u8>(PIN::PDR), enable ); };
-  auto rf() -> const bool { return digitalRead( static_cast<u8>(PIN::PDR) ); }
+  auto hardWait{ [](const PIN& pin){ while( !digitalRead( pin )); } };
+  auto rf(bool enable) -> void { digitalWrite( PDR, enable ); };
+  auto rf() -> const bool { return digitalRead( PDR ); }
   auto send = [](const PIN& le, void *pByte, int nByte){
     auto p{ static_cast<u8*>(pByte) + nByte };      // Most significant BYTE first.
-    digitalWrite( static_cast<u8>(le), 0 );         // Predicate condition for data transfer.
+    digitalWrite( le, 0 );                          // Predicate condition for data transfer.
     while( nByte-- ) SPI.transfer( *(--p) );        // Return value is ignored.
-    digitalWrite( static_cast<u8>(le), 1 ); };      // Data is latched on the rising edge.
+    digitalWrite( le, 1 ); };                       // Data is latched on the rising edge.
   auto sNudge{ [](){ sleep_disable(); detachInterrupt(digitalPinToInterrupt(USR)); } };
   auto snuz() -> void {  // lambda hostile macros contained herein.
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);  // From: Nick Gammon. https://www.gammon.com.au/power
@@ -138,7 +139,7 @@ namespace Hardware {
       rfDivSelect,  rfFBselect,   ledMode,
       _end
     };  using I = Identifier;
- constexpr struct LayoutSpecification { const u8 RANK, OFFSET, WIDTH; } ADF435x[] {  /*
+ constexpr struct Layout { const u8 RANK, OFFSET, WIDTH; } ADF435x[] {  /*
     //  https://gcc.gnu.org/onlinedocs/gcc/Designated-Inits.html
     Human deduced via inspection.
       OVERLAYED_REGISTERS:  Number of (32 bit) "registers".
@@ -161,23 +162,23 @@ namespace Hardware {
     [I::auxOutPwr] = {1, 6, 2},     [I::auxOutEnable] = {1, 8, 1},  [I::auxFBselect] = {1, 9, 1},
     [I::muteTillLD] = {1, 10, 1},   [I::vcoPwrDown] = {1, 11, 1},   [I::bndSelClkDv] = {1, 12, 8},
     [I::rfDivSelect] = {1, 20, 3},  [I::rfFBselect] = {1, 23, 1},   [I::ledMode] = {0, 22, 2} };
-    static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(LayoutSpecification)));
+    static_assert(Identifier::_end == (sizeof(ADF435x) / sizeof(Layout)));
   struct Parameters { u8 rpwr, rdiv; u16 dnom, whol, numr, prop; };
     constexpr Parameters INIT{ .rpwr = minus4, 0, .dnom = 1, .whol = 0, .numr = 0, .prop = 1 };
-class SpecifiedOverlay {
+class Overlay {
   private:
     HW::PIN le{ HW::PIN::LE }, ld{ HW::PIN::LD };  // could be dynamic (multi-device)
     NoiseSpurMode nsMode = lowNoise;  // sloppy afterthought
-    static const LayoutSpecification* const layoutSpec;
+    static const Layout* const layoutSpec;
     Parameters store{ INIT };
-    struct Overlay {
+    struct Storage {
       static constexpr size_t NR{ OVERLAYED_REGISTERS };
       using RegArray = std::array<u32, NR>; /*
         With the exception of r5 bits 19 and 20, all 'reserved' bits are to be set to zero. These
         regions become invariants by not providing identifiers for them in the Specification. */
     u8 durty; SPISettings settings; RegArray reg; };
-    using OVL = Overlay;
-    OVL ovl{ 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), OVL::RegArray{ 0x180005,4,3,2,1,0} };
+    using STO = Storage;
+    STO ovl{ 0, SPISettings(4000000, MSBFIRST, SPI_MODE0), STO::RegArray{ 0x180005,4,3,2,1,0} };
     auto raw( const I& symbol,const u16& value ) -> decltype(*this) {
       static constexpr u32 MASK[] = {
         0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767, 65535 };
@@ -239,7 +240,7 @@ class SpecifiedOverlay {
   auto set( const I& sym,const u16& val ) -> decltype(*this) { return operator()( sym,val ); }
     // Wrapper for opertor()( loci )
   auto set( const Parameters& loci ) -> decltype(*this) { return operator()( loci ); }
-} final; const LayoutSpecification * const SpecifiedOverlay::layoutSpec{ ADF435x };
+} final; const Layout * const Overlay::layoutSpec{ ADF435x };
  class Resolver {
     private:  // Rotating phasor: f(t) = |magnitude| * pow( Euleran, j( omega*t + phi ))
       Parameters loci{ INIT };
@@ -329,10 +330,8 @@ class SpecifiedOverlay {
       for(u8 index{0}; index!=Digits; index++) {
         numrl.push_front(bn / power(Radix, Digits-1-index));
           bn %= power(Radix, Digits-1-index); } }
-            #ifdef DEBUG
     auto pr(char term = ' ') -> void {
       for(size_t ix{}; size() != ix; ix++) ::pr(operator[](size()-1-ix)); ::pr(term); }
-            #endif
     auto size() -> const size_t { return numrl.size(); } };
 /* End Synthesis:: */ }
   void setup() __attribute__ ((noreturn));
@@ -343,24 +342,23 @@ class SpecifiedOverlay {
   //  Lewis Carroll. London: Macmillan and Co. 1865. 
 auto setup() -> void {
   using namespace Hardware;
-  pinMode(static_cast<u8>(PIN::PDR), OUTPUT);       // Rf output enable
+  pinMode(PDR, OUTPUT);       // Rf output enable
   rf( OFF );
-  pinMode(static_cast<u8>(PIN::LE), OUTPUT);        // (spi) latch enable
-  digitalWrite(static_cast<u8>(PIN::LE), 1);
-  pinMode(static_cast<u8>(PIN::USR), INPUT_PULLUP); // SeeSaw interrupt
-  pinMode(static_cast<u8>(PIN::LD), INPUT);         // lock detect
-  pinMode(static_cast<u8>(PIN::MUX), INPUT_PULLUP); // ignored
-  pinMode(VS, OUTPUT); digitalWrite(VS, OFF);       // Sensor supply
-  pinMode(A1, INPUT);                               // Sensor
-  analogReference(INTERNAL); auto adc{analogRead(A1)}, old{ adc };  // prime the adc
+  pinMode(LE, OUTPUT);        // (spi) latch enable
+  digitalWrite(LE, 1);
+  pinMode(USR, INPUT_PULLUP); // SeeSaw interrupt
+  pinMode(LD, INPUT);         // lock detect
+  pinMode(MUX, INPUT_PULLUP); // ignored
+  pinMode(VS, OUTPUT);        // Sensor supply
+  digitalWrite(VS, OFF);
+  pinMode(A1, INPUT);         // Sensor
+  analogReference(INTERNAL); auto raw{analogRead(A1)}, old{ raw };  // prime the adc
   Wire.begin();  Wire.setClock(400000L);  SPI.begin();
-    #ifdef DEBUG
   S.begin(115200L);
-    #endif
   OLED oled; oled.begin(&Adafruit128x64, 0x3d); oled.setContrast(0x20);
   oled.setFont(X11fixed7x14); oled.setLetterSpacing(4);
   using namespace Synthesis;
-; SpecifiedOverlay pll;
+; Overlay pll;
   // Prior to flush(), quantiy I::_end calls of set() are required, in any order.
   //  handled later are: I::fraction, I::integer, I::modulus I::rfDivSelect      (1) (2) (3) (36)
   pll( I::phase, 1);                     // Adjust phase AFTER loop lock. Not redundant.      (4)
@@ -407,34 +405,26 @@ auto setup() -> void {
   /**/ss.pinModeBulk(btnMask,INPUT_PULLUP); ss.setGPIOInterrupts(btnMask,ON);
   /**/T1.initialize(10000000UL); T1.attachInterrupt(Trig1); }
   struct Persist {  Nmrl<8> Ref; Nmrl<1> Pwr; Nmrl<10> Frq; Nmrl<3> Lag;
-  /**/              int K; long W; Axis axs; bool xmt, hld, lup; };
+  /**/              int raw; long osc; Axis axs; bool xmt, hld, lup; };
   struct { Persist P; u16 sum; } Mem; Persist& P{ Mem.P };
-  constexpr auto Gt{ 226.5e-6 /* Volt per ºK */ / 562 /* Ohms */ }; /* Ampere per ºK */
-  auto Tk{ [Gt](const int i10){ return (100e-6 + i10*1.1/1024/26.7e3) / Gt; } }; // Kirchhoff
-  enum Scale { Kelvin, Celsius, Fahrenheit };
-  auto pT{ [](const DBL& tk, int scale, int n = 1, char t = ' '){ switch (scale) {
-    default:  case Kelvin: return S.print(tk,n)+S.print(t);
-              case Celsius: return S.print(tk-273,n)+S.print(t);
-              case Fahrenheit: return S.print((tk-273)*9/5+32,n)+S.print(t);  } } };
-  auto xmit{ [&pll](bool b){ pll(I::idle,!b).set(I::cp3state,!b).flush(); rf(b); } };
   XMEM X; bool hasX{ X.begin() }; if( hasX ) X.readObject(0, Mem);
   if( ckMem(&P, sizeof(P)) != Mem.sum ) { // default values
     P.Ref(OSC);/* P.Pwr(minus4); P.Frq(34*MHz + 375*kHz);*/
     P.axs = Axis::REF; P.xmt = OFF; P.hld = OFF; P.lup = ON; /*}*/
     P.Lag(1); P.Pwr(minus4); P.Frq(100*MHz);
-    P.K = 571; P.W = 24999798; };
-  Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit();
-  xmit(P.xmt); long W{ 0 };
+    P.raw = 571; P.osc = 24999798; };
+  auto xmit{ [&pll](bool b){ pll(I::idle,!b).set(I::cp3state,!b).flush(); rf(b); } };
+  xmit(P.xmt); Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit(); long refHat{ OSC };
 ; for( bool toDev{ON}, toHuman{ON}; ON; ) {
 /**/if( vAcq ) { /* WD Timeout interval set in HW::wdtInit(). */
-      digitalWrite(VS, ON); delay(1); /* Power the sensor & wait for it to stabilize. */
-      if(auto toss{analogRead(A1)}) toss = adc = analogRead(A1); /* Disregard the first. */
+      digitalWrite(VS, ON); delay(1); /* Power the sensor and wait for it to stabilize. */
+      if(auto toss{analogRead(A1)}) toss = raw = analogRead(A1); /* Disregard the first. */
       digitalWrite(VS, OFF); noInterrupts(); vAcq = 0; interrupts();
-      if(old != adc && !P.lup) { old = adc; toHuman = 1; }
-      auto dWK{ -12.6 }; // Hertz per ºK 
-      W = P.W + (Tk(adc) - Tk(P.K)) * dWK;  // W = Temperature dependent estimate of Ref
-      if(P.lup) { if( auto dR{ int(P.Ref() - W) } ) { constexpr u8 epsilon{ 4 };
-  /**/  if((dR < 0 ? -dR : dR) > epsilon) { P.Ref( W ); toHuman = toDev = 1; } } } }
+      if(old != raw && !P.lup) { old = raw; toHuman = 1; }
+      constexpr auto OTC{ -12.6 }; // Oscillator temperature coefficient in units of Hertz per ºK
+      refHat = P.osc + (Tk(raw) - Tk(P.raw)) * OTC;  // Ref estimate
+      if(P.lup) { if( auto dR{ int(P.Ref() - refHat) } ) { constexpr u8 epsilon{ 4 };
+  /**/  if((dR < 0 ? -dR : dR) > epsilon) { P.Ref( refHat ); toHuman = toDev = 1; pr(); } } } }
 /**/if( toDev ) {
       P.Pwr(constrain(P.Pwr(), minus4, plus5));
       pll(rslv(P.Pwr(), Axis::AMPL));
@@ -456,15 +446,13 @@ auto setup() -> void {
         case Axis::AMPL:  P.Pwr.disp(oled,'\n',!P.hld); break;
         case Axis::PHAS:  P.Lag.disp(oled,'\n',!P.hld); break;
         case Axis::REF:   P.Ref.disp(oled,'\n',!P.hld); break; }
-      oled.print(adc); oled.print(' ');
-      oled.println(Tk(adc)-273,1);
-        #ifdef DEBUG
-      S.print(adc); pr();/**/ pT(Tk(adc),Celsius,1);
-      if(!P.lup) { pr('w'); S.print(W); pr(); }
+      oled.print(raw); oled.print(' ');
+      oled.println(Tk(raw)-273,1);
+      S.print(raw); pr();/**/ pT(Tk(raw),Celsius,1);
+      if(!P.lup) { pr('w'); S.print(refHat); pr(); }
       pr('r'); P.Ref.pr();
       S.print(rf() ? 'R' : '\0'); S.print(pll.locked() ? 'L' : '\0');
       S.print(P.lup ? 'A' : '\0'); S.println(P.hld ? '\0' : '!');
-        #endif
       noInterrupts(); toHuman = vT1 = 0; interrupts(); }
 /**/if( hasSS ) { if( !digitalRead(USR) ) { // SeeSaw interrupt
         if( auto diff{ss.getEncoderPosition() - knob}) {
@@ -475,7 +463,7 @@ auto setup() -> void {
         /**/if(sft == act) { while(btns(ss) == sft); }
         /**/else { switch(act) {
                 case sft+inc: if(hasX) { if(!P.lup && !P.hld) { P.lup = ON; P.hld = OFF;/**/
-                                P.K = adc; P.W = P.Ref(); pr('K'); }
+                                P.raw = raw; P.osc = P.Ref(); pr('K'); }
                                 Mem.sum = ckMem(&P, sizeof(P)); X.writeObject(0,Mem); }
                                 pr(" STO\n"); break;
                 case sft+lft: P.lup = !P.lup; break;
@@ -510,7 +498,7 @@ auto setup() -> void {
                             case Axis::PHAS:  P.Lag(rgt); break;
                             case Axis::REF:   P.Ref(rgt); break; } }  break;
                 default:  break; }
-        /**/  while(btns(ss)); } } } } }
+        /**/  while(btns(ss)); } pr('*'); } } } }
 /**/noInterrupts(); auto wink{ (P.lup && vT1) && !vAcq && !toDev && !toHuman }; interrupts();
 /**/if( wink ) {  T1.stop(); oled.clear(); noInterrupts(); vT1 = 0; interrupts();
 /**/              if(hasSS) snuz(/* Asleep */); /* Awake */ } } }
