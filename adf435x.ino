@@ -34,7 +34,7 @@
   auto pr( const char* const s, const u16& arg, char term = ' ', int num = DEC ) -> const size_t {
     return pr(s) + pr(arg, term, num); }
 namespace Hardware {
-  enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD = 7, LE = 10, VS = A0 };
+  enum PIN : u8 { USR = 2, MUX = 4, PDR = 6, LD = 7, LE = 10, VS = A0, Aosc = A1, RLY = A3 };
   auto Tk{ [](const int i10){ return (100e-6+i10*1.1/1024/26.7e3)/226.5e-6*562; } }; // Kirchhoff
   enum Scale { Kelvin, Celsius, Fahrenheit };
   auto pT{ [](const DBL& tk, int scale, int n = 1, char t = ' '){ switch (scale) {
@@ -69,7 +69,7 @@ namespace Hardware {
   auto wdtInit() -> void {  // More (ugly) macros.
     MCUSR = 0;  // From: Nick Gammon. https://www.gammon.com.au/power
     WDTCSR = bit(WDCE) | bit(WDE);
-    WDTCSR = (bit(WDIE)) | (bit(WDP3)); // Four seconds? Fix me.
+    WDTCSR = (bit(WDIE)) | (bit(WDP3)); // Four seconds?              Rewrite me for readablility.
     wdt_reset();  }
 } namespace HW = Hardware; namespace Synthesis {
  constexpr  i64   kHz{ 1000 }, MHz{ 1000*kHz }, GHz{ 1000*MHz };
@@ -351,7 +351,9 @@ auto setup() -> void {
   pinMode(MUX, INPUT_PULLUP); // ignored
   pinMode(VS, OUTPUT);        // Sensor supply
   digitalWrite(VS, OFF);
-  pinMode(A1, INPUT);         // Sensor
+  pinMode(Aosc, INPUT);       // Oscillaror Temperature Sensor
+  pinMode(RLY, OUTPUT);       // Relay exciter, active low
+  digitalWrite(RLY, 1);
   analogReference(INTERNAL); auto raw{analogRead(A1)}, old{ raw };  // prime the adc
   Wire.begin();  Wire.setClock(400000L);  SPI.begin();
   S.begin(115200L);
@@ -413,16 +415,18 @@ auto setup() -> void {
     P.axs = Axis::REF; P.xmt = OFF; P.hld = OFF; P.lup = ON; /*}*/
     P.Lag(1); P.Pwr(minus4); P.Frq(100*MHz);
     P.raw = 571; P.osc = 24999798; };
-  auto xmit{ [&pll](bool b){ pll(I::idle,!b).set(I::cp3state,!b).flush(); rf(b); } };
+  auto xmit{ [&pll](bool b) { rf(b); pll(I::idle,!b).set(I::cp3state,!b).flush();
+                              digitalWrite(RLY, !b); } };
   xmit(P.xmt); Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit(); long refHat{ OSC };
 ; for( bool toDev{ON}, toHuman{ON}; ON; ) {
-/**/if( vAcq ) { /* WD Timeout interval set in HW::wdtInit(). */
-      digitalWrite(VS, ON); delay(1); /* Power the sensor and wait for it to stabilize. */
-      if(auto toss{analogRead(A1)}) toss = raw = analogRead(A1); /* Disregard the first. */
+/**/if( vAcq ) { /* HW::wdtInit() sets WD Timeout interval. */
+      constexpr u32 settle{ round(26.7e3 /*ohm*/ * 39e-9 /*farad*/ * 7 * 1e3) };   
+      digitalWrite(VS, ON); delay(settle); /* Power the sensor and wait for it to settle. */
+      auto discard{analogRead(A1)}; raw = discard = analogRead(A1); /* Disregard the first. */
       digitalWrite(VS, OFF); noInterrupts(); vAcq = 0; interrupts();
       if(old != raw && !P.lup) { old = raw; toHuman = 1; }
-      constexpr auto OTC{ -12.6 }; // Oscillator temperature coefficient in units of Hertz per ºK
-      refHat = P.osc + (Tk(raw) - Tk(P.raw)) * OTC;  // Ref estimate
+      constexpr auto TempCoef{ -12.6 }; // Units: Hertz per ºK
+      refHat = P.osc + (Tk(raw) - Tk(P.raw)) * TempCoef;  // Ref estimate
       if(P.lup) { if( auto dR{ int(P.Ref() - refHat) } ) { constexpr u8 epsilon{ 4 };
   /**/  if((dR < 0 ? -dR : dR) > epsilon) { P.Ref( refHat ); toHuman = toDev = 1; pr(); } } } }
 /**/if( toDev ) {
@@ -500,5 +504,4 @@ auto setup() -> void {
                 default:  break; }
         /**/  while(btns(ss)); } pr('*'); } } } }
 /**/noInterrupts(); auto wink{ (P.lup && vT1) && !vAcq && !toDev && !toHuman }; interrupts();
-/**/if( wink ) {  T1.stop(); oled.clear(); noInterrupts(); vT1 = 0; interrupts();
-/**/              if(hasSS) snuz(/* Asleep */); /* Awake */ } } }
+/**/if( wink ) {  T1.stop(); oled.clear(); noInterrupts(); vT1 = 0; interrupts(); snuz(); } } }
