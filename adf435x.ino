@@ -420,15 +420,16 @@ auto setup() -> void {
   xmit(P.xmt); Resolver rslv(pfdf(P.Ref()), IOTA); wdtInit(); long refHat{ OSC };
 ; for( bool toDev{ON}, toHuman{ON}; ON; ) {
 /**/if( vAcq ) { /* HW::wdtInit() sets WD Timeout interval. */
-      constexpr u32 settle{ round(26.7e3 /*ohm*/ * 39e-9 /*farad*/ * 7 * 1e3) };   
-      digitalWrite(VS, ON); delay(settle); /* Power the sensor and wait for it to settle. */
-      auto discard{analogRead(A1)}; raw = discard = analogRead(A1); /* Disregard the first. */
+      constexpr auto RC{ 26.7e3 /*ohm*/ * 39e-9 /*farad*/ }; // roughly one milliSecond
+      constexpr auto settleTime{ u32(ceil(7 * 1e3 * RC)) };  // 10bits; ln(999) * RC ≈ 7RC
+      digitalWrite(VS, ON); delay(settleTime); /* Power the sensor and wait for it to settle. */
+      raw = analogRead(A1);
       digitalWrite(VS, OFF); noInterrupts(); vAcq = 0; interrupts();
       if(old != raw && !P.lup) { old = raw; toHuman = 1; }
       constexpr auto TempCoef{ -12.6 }; // Units: Hertz per ºK
       refHat = P.osc + (Tk(raw) - Tk(P.raw)) * TempCoef;  // Ref estimate
-      if(P.lup) { if( auto dR{ int(P.Ref() - refHat) } ) { constexpr u8 epsilon{ 4 };
-  /**/  if((dR < 0 ? -dR : dR) > epsilon) { P.Ref( refHat ); toHuman = toDev = 1; pr(); } } } }
+      if(P.lup) { if( auto dR{ int(P.Ref() - refHat) } ) { constexpr u8 nu{ 4 };
+  /**/  if((dR < 0 ? -dR : dR) > nu) { P.Ref( refHat ); toHuman = toDev = 1; pr(); } } } }
 /**/if( toDev ) {
       P.Pwr(constrain(P.Pwr(), minus4, plus5));
       pll(rslv(P.Pwr(), Axis::AMPL));
